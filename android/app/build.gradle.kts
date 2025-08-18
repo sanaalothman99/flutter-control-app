@@ -8,8 +8,9 @@ android {
     // غيّري الـ namespace لمعرّفك
     namespace = "com.sana.fluttercontrol"
 
+
     // هذه القيم يوفّرها Flutter Gradle plugin
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 34
     ndkVersion = flutter.ndkVersion
 
     defaultConfig {
@@ -17,12 +18,12 @@ android {
         applicationId = "com.sana.fluttercontrol"
 
         // ✅ صيغة Kotlin DSL الصحيحة (بدلاً من minSdkVersion/targetSdkVersion)
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        minSdk = 23
+        targetSdk =34
 
         // يقرأان من gradle.properties (flutter.versionCode / flutter.versionName)
-        versionCode = project.property("flutter.versionCode").toString().toInt()
-        versionName = project.property("flutter.versionName").toString()
+        versionCode = 1
+        versionName ="1.0"
 
         multiDexEnabled = true
     }
