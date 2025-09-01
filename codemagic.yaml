@@ -1,119 +1,69 @@
 workflows:
-  ios_testflight:
-    name: iOS • TestFlight
-    max_build_duration: 60
+  # ========= ANDROID =========
+  android-debug:
+    name: Android Debug (APK)
+    environment:
+      flutter: stable
+      java: 17
+    scripts:
+      - flutter pub get
+      - flutter build apk --debug
+    artifacts:
+      - build/app/outputs/flutter-apk/app-debug.apk
+
+  android-release-apk:
+    name: Android Release (APK)
+    environment:
+      flutter: stable
+      java: 17
+    scripts:
+      - flutter pub get
+      # لو عندك keystore مضاف في Codemagic استخدم التوقيع التلقائي:
+      - flutter build apk --release
+    artifacts:
+      - build/app/outputs/flutter-apk/app-release.apk
+
+  android-release-aab:
+    name: Android Release (AAB for Play)
+    environment:
+      flutter: stable
+      java: 17
+    scripts:
+      - flutter pub get
+      - flutter build appbundle --release
+    artifacts:
+      - build/app/outputs/bundle/release/app-release.aab
+
+  # ========= iOS =========
+  ios-simulator:
+    name: iOS Simulator (.app, بدون توقيع)
     environment:
       flutter: stable
       xcode: latest
-      vars:
-        BUNDLE_ID: com.drd.ecremote
-        # مفاتيح App Store Connect (اضيفيها كـ secure vars من UI)
-        APP_STORE_CONNECT_ISSUER_ID: Encrypted(...)
-        APP_STORE_CONNECT_KEY_IDENTIFIER: Encrypted(...)
-        APP_STORE_CONNECT_PRIVATE_KEY: Encrypted(...)
     scripts:
-      - name: Flutter pub get
-        script: flutter pub get
+      - flutter pub get
+      - flutter build ios --simulator --no-codesign
+    artifacts:
+      - build/ios/iphonesimulator/*.app
 
-      - name: زيادة رقم الـ build تلقائياً
-        script: |
-          VERSION_LINE=$(grep '^version:' pubspec.yaml | sed 's/version: //')
-          BUILD_NAME=${VERSION_LINE%%+*}
-          BUILD_NUMBER=${VERSION_LINE##*+}
-          BUILD_NUMBER=$((BUILD_NUMBER + 1))
-          echo "BUILD_NAME=$BUILD_NAME" >> $CM_ENV
-          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $CM_ENV
-          echo "Using BUILD_NAME=$BUILD_NAME  BUILD_NUMBER=$BUILD_NUMBER"
-
-      # (اختياري) لو مفعّلة "Automatic code signing" من UI ما تحتاجي هذا؛ خليها من الواجهة أسهل.
-      # - name: استخدمي التوقيع التلقائي إن كنتِ مفعّلته من Integrations
-      #   script: xcode-project use-profiles
-
-      - name: Build IPA (Release)
-        script: |
-          flutter build ipa --release \
-            --build-name="$BUILD_NAME" \
-            --build-number="$BUILD_NUMBER"
-
+  ios-adhoc:
+    name: iOS AdHoc (IPA للأجهزة المسجّلة)
+    environment:
+      flutter: stable
+      xcode: latest
+    scripts:
+      - flutter pub get
+      - flutter build ipa --export-options-plist=ExportOptions_AdHoc.plist
     artifacts:
       - build/ios/ipa/*.ipa
 
-    publishing:
-      app_store_connect:
-        auth: api_key
-        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
-        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
-        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
-        submit_to_testflight: true
-        # beta_groups:
-        #   - Internal Testers
-
-  android_play:
-    name: Android • Google Play (AAB)
-    max_build_duration: 60
+  ios-appstore:
+    name: iOS App Store / TestFlight (IPA)
     environment:
       flutter: stable
-      vars:
-        ANDROID_PACKAGE_NAME: com.yourcompany.yourandroidapp  # عدّلي
-        # استخدمي واحدة من طريقتين للتوقيع:
-        # 1) App Signing by Google Play (مو لازم keystore محلي لرفع AAB)
-        # 2) توقيع محلي: فعّلي المتغيّرات أدناه وارفعي الـ keystore كـ secure file
-        ANDROID_KEYSTORE: Encrypted(...)              # (اختياري) base64 للـ .jks
-        ANDROID_KEYSTORE_PASSWORD: Encrypted(...)     # (اختياري)
-        ANDROID_KEY_ALIAS: Encrypted(...)             # (اختياري)
-        ANDROID_KEY_PASSWORD: Encrypted(...)          # (اختياري)
-        # خدمة Google Play API (ملف JSON لمستخدم خدمة) كـ secure var
-        GOOGLE_PLAY_JSON: Encrypted(...)
+      xcode: latest
     scripts:
-      - name: Flutter pub get
-        script: flutter pub get
-
-      - name: زيادة رقم الـ build تلقائياً
-        script: |
-          VERSION_LINE=$(grep '^version:' pubspec.yaml | sed 's/version: //')
-          BUILD_NAME=${VERSION_LINE%%+*}
-          BUILD_NUMBER=${VERSION_LINE##*+}
-          BUILD_NUMBER=$((BUILD_NUMBER + 1))
-          echo "BUILD_NAME=$BUILD_NAME" >> $CM_ENV
-          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $CM_ENV
-          echo "Using BUILD_NAME=$BUILD_NAME  BUILD_NUMBER=$BUILD_NUMBER"
-
-      - name: (اختياري) إعداد keystore محلي للتوقيع
-        script: |
-          if [ -n "$ANDROID_KEYSTORE" ]; then
-            echo "$ANDROID_KEYSTORE" | base64 --decode > /tmp/keystore.jks
-            cat >> android/key.properties <<EOF
-            storePassword=$ANDROID_KEYSTORE_PASSWORD
-            keyPassword=$ANDROID_KEY_PASSWORD
-            keyAlias=$ANDROID_KEY_ALIAS
-            storeFile=/tmp/keystore.jks
-            EOF
-          fi
-
-      - name: Build AAB (Release)
-        script: |
-          flutter build appbundle --release \
-            --build-name="$BUILD_NAME" \
-            --build-number="$BUILD_NUMBER"
-
+      - flutter pub get
+      - flutter build ipa --export-options-plist=ExportOptions_AppStore.plist
     artifacts:
-      - build/app/outputs/bundle/release/*.aab
-
-    publishing:
-      google_play:
-        credentials: $GOOGLE_PLAY_JSON
-        track: internal               # internal / alpha / beta / production
-        package_name: $ANDROID_PACKAGE_NAME
-        submit_as_draft: true         # خليه draft أولاً
-
-  # Workflow اختياري يشغّل الاثنين وراء بعض
-  release_both:
-    name: Release • iOS + Android
-    max_build_duration: 120
-    triggering:
-      events:
-        - push
-    instance_type: mac_mini_m1
-
-    # ما في سكربت هنا؛ نستخدم تبع كل وركفلو أعلاه
-    # شغّلي هذا الـ workflow من UI كـ "Start builds in parallel" على ios_testflight و android_play
+      - build/ios/ipa/*.ipa
