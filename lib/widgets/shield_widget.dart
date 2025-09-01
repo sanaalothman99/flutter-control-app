@@ -27,38 +27,44 @@ class ShieldWidget extends StatelessWidget {
     required this.isSelected,
     required this.groupSize,
   });
+  static const int kMaxPressureBar = 600;  // أقصى ضغط لملء العمود
+  static const int kMaxRamMm       = 600; // أقصى شوط رام
+
+
   Color _colorFor(double value, Color normal) {
-    final int intValue = value.toInt();
-
-    // 0xFFFF (65535) = Error → red
-    if (intValue == 65535) return Colors.red;
-
-    // 0xFFFE (65534) = Ignored → brown
-    if (intValue == 65534) return Colors.brown;
-
+    final int v = value.toInt();
+    // 16-بت فقط
+    if (v == 65535) return Colors.red;     // Error
+    if (v == 65534) return Colors.brown;   // Ignored
     return normal;
   }
 
-  double _factor(double value) {
-    if (value.toInt() == 255 || value.toInt() == 254) return 1.0;
-    return value.clamp(0, 100) / 100.0;
+  double _norm(double value, int max) {
+    final int v = value.toInt();
+    // لو Error/Ignored خلّي العمود ممتلئ ليوضح بصريًا
+    if (v == 65535 || v == 65534) return 1.0;
+
+    if (max <= 0) return 0.0;
+    final f = value / max;
+    if (f.isNaN || f.isInfinite) return 0.0;
+    return f.clamp(0.0, 1.0);
   }
 
   BorderSide get _border {
     if (isCurrent) {
-      if (isSelected) {
-        return const BorderSide(color: Colors.blue, width: 3.0);
-      }// else {
-       // return const BorderSide(color: Colors.blue, width: 2.5);
-     // }
+      if (isSelected) return const BorderSide(color: Colors.blue, width: 3.0);
     }
     if (isHighlighted) return const BorderSide(color: Colors.blue, width: 3.0);
-    if (isSelected) return const BorderSide(color: Colors.blue, width: 2.0);
+    if (isSelected)    return const BorderSide(color: Colors.blue, width: 2.0);
     return BorderSide.none;
   }
 
   @override
   Widget build(BuildContext context) {
+    final pL = _norm(pressureLeft,  kMaxPressureBar);
+    final pR = _norm(pressureRight, kMaxPressureBar);
+    final rF = _norm(ramValue,      kMaxRamMm);
+
     return Column(
       children: [
         if (isCurrent)
@@ -73,35 +79,22 @@ class ShieldWidget extends StatelessWidget {
           ),
           child: Column(
             children: [
-              // ── Pressure row (with face orientation)
               Expanded(
-                flex: 1,
                 child: Row(
                   children: faceOrientation == 1
-                      ? _buildReversedPressureBars()
-                      : _buildNormalPressureBars(),
+                      ? _buildReversedPressureBars(pL, pR)
+                      : _buildNormalPressureBars(pL, pR),
                 ),
               ),
-
-              // ── Spacer
-              Container(
-                height: 4,
-                width: double.infinity,
-                color: Colors.grey.shade500,
-              ),
-
-              // ── RAM row
+              Container(height: 4, width: double.infinity, color: Colors.grey.shade500),
               Expanded(
-                flex: 1,
                 child: Container(
                   alignment: Alignment.bottomCenter,
                   color: Colors.grey.shade100,
                   child: FractionallySizedBox(
-                    heightFactor: _factor(ramValue),
+                    heightFactor: rF,
                     alignment: Alignment.bottomCenter,
-                    child: Container(
-                      color: _colorFor(ramValue, Colors.green),
-                    ),
+                    child: Container(color: _colorFor(ramValue, Colors.green)),
                   ),
                 ),
               ),
@@ -114,21 +107,17 @@ class ShieldWidget extends StatelessWidget {
     );
   }
 
-  List<Widget> _buildNormalPressureBars() {
-    return [
-      _buildPressureBar(pressureLeft, Colors.green, true),
-      _buildPressureBar(pressureRight, Colors.green.shade700, false),
-    ];
-  }
+  List<Widget> _buildNormalPressureBars(double fLeft, double fRight) => [
+    _buildPressureBar(fLeft,  _colorFor(pressureLeft,  Colors.green),          true),
+    _buildPressureBar(fRight, _colorFor(pressureRight, Colors.green.shade700), false),
+  ];
 
-  List<Widget> _buildReversedPressureBars() {
-    return [
-      _buildPressureBar(pressureRight, Colors.green.shade700, true),
-      _buildPressureBar(pressureLeft, Colors.green, false),
-    ];
-  }
+  List<Widget> _buildReversedPressureBars(double fLeft, double fRight) => [
+    _buildPressureBar(fRight, _colorFor(pressureRight, Colors.green.shade700), true),
+    _buildPressureBar(fLeft,  _colorFor(pressureLeft,  Colors.green),          false),
+  ];
 
-  Widget _buildPressureBar(double value, Color color, bool withRightBorder) {
+  Widget _buildPressureBar(double factor, Color color, bool withRightBorder) {
     return Expanded(
       child: Container(
         alignment: Alignment.bottomCenter,
@@ -141,9 +130,9 @@ class ShieldWidget extends StatelessWidget {
           ),
         ),
         child: FractionallySizedBox(
-          heightFactor: _factor(value),
+          heightFactor: factor,
           alignment: Alignment.bottomCenter,
-          child: Container(color: _colorFor(value, color)),
+          child: Container(color: color),
         ),
       ),
     );

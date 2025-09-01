@@ -14,18 +14,55 @@ class ShieldInfoTable extends StatelessWidget {
     required this.selectedShields,
     required this.shields,
   });
+  // يعرض رقم الشيلد من unitNumber إن وُجد وإلا fallback على الفهرس
+  String _unitLabel(int i, ShieldData? sd) {
+    final unit = sd?.unitNumber ?? i;
+    return '#${unit.toString().padLeft(3, '0')}';
+  }
+
+// تجيب صف الداتا بأمان (null لو خارج النطاق)
+  ShieldData? _dataForRow(int i) {
+    return (i >= 0 && i < shields.length) ? shields[i] : null;
+  }
+
+// خلية نصية جاهزة
+  Widget _cell(String text) => Padding(
+      padding: const EdgeInsets.all(8),
+      child: Text(text),);
 
   @override
   Widget build(BuildContext context) {
-    // ✅ إصلاح إزالة التكرار + التحقق من الحدود (>=0 و < length)
-    final List<int> shieldsToDisplay = <int>{
-      currentShield,
-      if (highlightedShield != null) highlightedShield!,
-      ...selectedShields,
+    // اختاري ما سيُعرض:
+    final List<int> shieldsToDisplay;
+    if (selectedShields.isNotEmpty) {
+      shieldsToDisplay = {
+        ...selectedShields.where((i) => i >= 0),
+      }.toList()
+        ..sort();
+    } else if (highlightedShield != null) {
+      shieldsToDisplay = [highlightedShield!];
+    } else {
+      shieldsToDisplay = [currentShield];
     }
-        .where((i) => i >= 0 && i < shields.length)
-        .toList()
-      ..sort();
+
+    // دالة تجيب البيانات الصحيحة لكل صف:
+    ShieldData? dataForRow(int unitIndex) {
+      if (unitIndex == currentShield) {
+        // الشيلد الحالي يقرأ من الإطار الرئيسي (index 0) إن وُجد
+        if (shields.isNotEmpty) return shields[0];
+        return null;
+      }
+      // غير الحالي يقرأ من مكانه إن كان متاحاً
+      if (unitIndex >= 0 && unitIndex < shields.length) {
+        return shields[unitIndex];
+      }
+      return null;
+    }
+
+    Widget cell(String text) => Padding(
+      padding: const EdgeInsets.all(8),
+      child: Text(text),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -41,7 +78,6 @@ class ShieldInfoTable extends StatelessWidget {
           },
           defaultVerticalAlignment: TableCellVerticalAlignment.middle,
           children: [
-            // ✅ عناوين مطابقة للمواصفة
             const TableRow(
               decoration: BoxDecoration(color: Color(0xFFE0E0E0)),
               children: [
@@ -69,32 +105,27 @@ class ShieldInfoTable extends StatelessWidget {
             ),
 
             for (final i in shieldsToDisplay)
-              TableRow(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Text(
-                      // ✅ نستخدم unitNumber إن وُجد، وإلا نfallback على الفهرس
-                      '#${(shields[i].unitNumber ?? i).toString().padLeft(3, '0')}',
-                      style: TextStyle(
-                        fontWeight: i == currentShield ? FontWeight.bold : FontWeight.normal,
+              (() {
+                final sd = dataForRow(i);
+                final isCurrent = (i == currentShield);
+
+                return TableRow(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Text(
+                        _unitLabel(i, sd),
+                        style: TextStyle(
+                          fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                        ),
                       ),
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Text('${shields[i].ramStroke} mm'),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Text('${shields[i].pressure1} bar'),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Text('${shields[i].pressure2} bar'),
-                  ),
-                ],
-              ),
+                    cell(sd != null ? '${sd.ramStroke} mm' : '—'),
+                    cell(sd != null ? '${sd.pressure1} bar' : '—'),
+                    cell(sd != null ? '${sd.pressure2} bar' : '—'),
+                  ],
+                );
+              })(),
           ],
         ),
         const SizedBox(height: 12),

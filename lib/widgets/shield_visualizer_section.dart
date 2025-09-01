@@ -10,17 +10,39 @@ class ShieldVisualizerSection extends StatelessWidget {
     super.key,
     required this.controller,
   });
+  // == helpers داخل ShieldVisualizerSection ==
+  int? _deviceUnitFromName() {
+    final name = controller.connectionShieldName;
+    if (name == null) return null;
+    final m = RegExp(r'(\d{3})$').firstMatch(name);
+    return m != null ? int.parse(m.group(1)!) : null;
+  }
+
+  /// رجّع رقم الوحدة للعرض:
+  /// 1) من الداتا (unitNumber) إذا متوفر
+  /// 2) إذا كان idx هو الشيلد الحالي ومافي رقم، حاول من اسم الجهاز
+  /// 3) وإلا رجّع index كحل أخير
+  int _unitOfIndex(int idx) {
+    final sd = controller.tryGetUnit(idx);
+    final un = sd?.unitNumber;
+    if (un != null && un > 0) return un;
+
+    if (idx == controller.currentShield) {
+      final guessed = _deviceUnitFromName();
+      if (guessed != null) return guessed;
+    }
+    return idx;}
 
   @override
   Widget build(BuildContext context) {
     const double shieldHeight = 90;
     const double spacing = 3;
 
-    // احسبي النطاق الخام
+    // احسبي النطاق الخام حول الشيلد الحالي + التحديد/المجموعة
     int rawStart = _calculateStart();
     int rawEnd   = _calculateEnd();
 
-    // طبّقي حدود المسموح (maxUp/maxDown مع faceOrientation)
+    // طبّقي حدود المسموح (حسب maxUp/maxDown مع انعكاس الوجهة)
     final b = controller.allowedBounds;
     final startShield = rawStart < b.minAllowed ? b.minAllowed : rawStart;
     final endShield   = rawEnd   > b.maxAllowed ? b.maxAllowed : rawEnd;
@@ -45,36 +67,33 @@ class ShieldVisualizerSection extends StatelessWidget {
             children: List.generate(visibleCount, (i) {
               final shieldIndex = startShield + i;
 
-              // فقط ضمن الحدود نسمح بالتوليد/العرض
-              if (shieldIndex >= 0 &&
-                  shieldIndex >= controller.shields.length) {
+              // ==== الأسلوب الجديد (المعتمد): جلب آمن من الخريطة بدون توليد إجباري ====
+             final ShieldData? data = controller.tryGetUnit(shieldIndex);
+
+              // ==== الأسلوب القديم (احتياطي) — مُعَلَّق: أدناه يعتمد على القائمة وتوليد عناصر ====
+
+             /* if (shieldIndex >= 0 && shieldIndex >= controller.shields.length) {
                 controller.generateShield(shieldIndex);
               }
-
-              final ShieldData? data = (shieldIndex >= 0 &&
-                  shieldIndex < controller.shields.length)
+              final ShieldData? data = (shieldIndex >= 0 && shieldIndex < controller.shields.length)
                   ? controller.shields[shieldIndex]
-                  : null;
+                  : null;*/
 
-              final bool hasData = data != null &&
-                  ((data.pressure1 != 0) ||
-                      (data.pressure2 != 0) ||
-                      (data.ramStroke != 0));
 
               final bool isCurrent     = shieldIndex == controller.currentShield;
               final bool isHighlighted = controller.groupSize == 0 &&
-                  (shieldIndex ==
-                      controller.currentShield + controller.selectionDistance);
-              final bool inGroup = controller.selectedShields.contains(shieldIndex);
+                  (shieldIndex == controller.currentShield + controller.selectionDistance);
+              final bool inGroup       = controller.selectedShields.contains(shieldIndex);
+
+              final bool hasData = (data != null );/*&&
+                  ((data!.pressure1 != 0) || (data.pressure2 != 0) || (data.ramStroke != 0));*/
 
               if (!hasData) {
-                // Placeholder فضي
+                // Placeholder بسيط إن ما وصلتنا داتا لهالشيلد
                 return Expanded(
                   child: Container(
                     height: shieldHeight,
-                    margin: EdgeInsets.only(
-                      right: i < visibleCount - 1 ? 3 : 0,
-                    ),
+                    margin: EdgeInsets.only(right: i < visibleCount - 1 ? spacing : 0),
                     decoration: BoxDecoration(
                       color: Colors.grey.shade300,
                       borderRadius: BorderRadius.circular(4),
@@ -86,20 +105,18 @@ class ShieldVisualizerSection extends StatelessWidget {
 
               return Expanded(
                 child: Padding(
-                  padding: EdgeInsets.only(
-                    right: i < visibleCount - 1 ? spacing : 0,
-                  ),
+                  padding: EdgeInsets.only(right: i < visibleCount - 1 ? spacing : 0),
                   child: ShieldWidget(
                     width: double.infinity,
                     height: shieldHeight,
-                    pressureLeft:  data.pressure1.toDouble(),
-                    pressureRight: data.pressure2.toDouble(),
-                    ramValue:      data.ramStroke.toDouble(),
-                    isCurrent:     isCurrent,     // الرئيسي حدوده أزرق دائمًا
-                    isHighlighted: isHighlighted, // تحديد فردي
-                    isSelected:    inGroup,       // كل عناصر المجموعة حدودها أزرق
-                    groupSize:     controller.groupSize,
+                    pressureLeft:  (data.pressure1  ).toDouble(),
+                    pressureRight: (data.pressure2  ).toDouble(),
+                    ramValue:      (data.ramStroke  ).toDouble(),
                     faceOrientation: data.faceOrientation ?? 0,
+                    isCurrent:     isCurrent,
+                    isHighlighted: isHighlighted,
+                    isSelected:    inGroup,
+                    groupSize:     controller.groupSize,
                   ),
                 ),
               );
@@ -135,30 +152,38 @@ class ShieldVisualizerSection extends StatelessWidget {
   }
 
 
+
   Widget _numbersRow() {
-    // مجموعة: نعرض "بداية - نهاية" باللون الأزرق، مع عكس الترتيب إذا الوجهة معكوسة
+    // مجموعة: نعرض المدى بأرقام الوحدات الحقيقية
     if (controller.groupSize > 0) {
-      final r = controller.groupRange; // (min, max) بوحدات unitNumber
-      final bool reversed = controller.isReversed;
-      final text = reversed ? '${r.max} - ${r.min}' : '${r.min} - ${r.max}';
+      // حوّل كل indices إلى unitNumbers ثم خذ min/max
+      final units = controller.selectedShields.map(_unitOfIndex).toList();
+      if (units.isEmpty) {
+        return const SizedBox.shrink();
+      }
+      units.sort();
+      final text = controller.isReversed
+          ? '${units.last} - ${units.first}'
+          : '${units.first} - ${units.last}';
       return Text(
         text,
         style: const TextStyle(color: Colors.blue, fontSize: 18, fontWeight: FontWeight.w600),
       );
     }
 
-    // تحديد فردي: نعرض رقم الشيلد المظلّل بالأزرق
+    // تحديد فردي: استخدم رقم الوحدة الحقيقي
     if (controller.selectionDistance != 0) {
-      final hi = controller.highlightedUnit;
+      final hiIdx = controller.highlightedUnit;
+      final hiUnit = _unitOfIndex(hiIdx);
       return Text(
-        '$hi',
+        '$hiUnit',
         style: const TextStyle(color: Colors.blue, fontSize: 18, fontWeight: FontWeight.w600),
       );
     }
 
-    // بدون تحديد: نعرض رقم الشيلد الرئيسي بالأزرق
+    // بدون تحديد: الشيلد الحالي برقم وحدته الحقيقي
+    final curUnit = _unitOfIndex(controller.currentShield);
     return Text(
-      '${controller.currentShield}',
+      '$curUnit',
       style: const TextStyle(color: Colors.blue, fontSize: 18, fontWeight: FontWeight.w600),
-    );
-  }}
+    );}}

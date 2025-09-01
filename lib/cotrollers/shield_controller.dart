@@ -40,13 +40,17 @@ class ShieldController {
   bool get isReversed => shields.isNotEmpty && shields[0].faceOrientation == 1;
 
   int get maxGroupSize =>
-      shields.isNotEmpty && shields[0].moveRange != null ? shields[0].moveRange! : 15;
+      shields.isNotEmpty && shields[0].moveRange != null
+          ? shields[0].moveRange!
+          : 15;
 
   int get maxUpSelection =>
-      shields.isNotEmpty && shields[0].maxUpSelection != null ? shields[0].maxUpSelection! : 5;
+      shields.isNotEmpty && shields[0].maxUpSelection != null ? shields[0]
+          .maxUpSelection! : 5;
 
   int get maxDownSelection =>
-      shields.isNotEmpty && shields[0].maxDownSelection != null ? shields[0].maxDownSelection! : 5;
+      shields.isNotEmpty && shields[0].maxDownSelection != null ? shields[0]
+          .maxDownSelection! : 5;
 
   int get selectionStart => currentShield + selectionDistance;
 
@@ -66,7 +70,8 @@ class ShieldController {
   bool get hasActiveValves =>
       valveFunctions.any((v) => v != 0) || (extraFunction != 0);
 
-  int get selectionDistanceForMcu => isReversed ? -selectionDistance : selectionDistance;
+  int get selectionDistanceForMcu =>
+      isReversed ? -selectionDistance : selectionDistance;
 
   int get selectionSizeForMcu {
     final hasAny = (groupSize > 0) || (selectionDistance != 0);
@@ -118,59 +123,64 @@ class ShieldController {
     return true;
   }
 
-  // == توليد Placeholders للنطاق المطلوب (ضمن الحدود فقط) ==
+  // يولّد Placeholders لأي وحدات مطلوبة للرسم ولم تصل بياناتها بعد
   void _ensurePlaceholdersForRange(int minUnit, int maxUnit) {
+    // لو ما عندك حدود مفعّلة، اشتغلي بالنطاق المطلوب كما هو
+    int start = minUnit;
+    int end   = maxUnit;
+
+    // إن كان عندك allowedBounds جاهز، فيك تعملي قصّ ضمن الحدود:
     final b = allowedBounds;
-    int start = minUnit < b.minAllowed ? b.minAllowed : minUnit;
-    int end   = maxUnit > b.maxAllowed ? b.maxAllowed : maxUnit;
+    if (start < b.minAllowed) start = b.minAllowed;
+    if (end   > b.maxAllowed) end   = b.maxAllowed;
+
     for (int u = start; u <= end; u++) {
       if (!shieldMap.containsKey(u)) {
-        final placeholder = ShieldData(
-          unitNumber: u,
-          pressure1: 0,
-          pressure2: 0,
-          ramStroke: 0,
-          sensor4: 0,
-          sensor5: 0,
-          sensor6: 0,
-          faceOrientation: shields.isNotEmpty ? (shields[0].faceOrientation ?? 0) : 0,
-          maxDownSelection: shields.isNotEmpty ? (shields[0].maxDownSelection ?? 5) : 5,
-          maxUpSelection: shields.isNotEmpty ? (shields[0].maxUpSelection ?? 5) : 5,
-          moveRange: shields.isNotEmpty ? (shields[0].moveRange ?? 15) : 15,
-        );
+        final placeholder = ShieldData.empty(unitNumber: u);
         shieldMap[u] = placeholder;
 
-        // حافظنا على منطق الـ List: إذا المؤشر يطابق الطول نضيف، غير هيك ما نكسر الترتيب
-        if (u == shields.length) {
-          shields.add(placeholder);
-        } else if (u > shields.length) {
-          // لو وحدة بعيدة، نملأ ما قبلها أيضاً
-          for (int k = shields.length; k < u; k++) {
-            final ph = ShieldData(
-              unitNumber: k,
-              pressure1: 0,
-              pressure2: 0,
-              ramStroke: 0,
-              sensor4: 0,
-              sensor5: 0,
-              sensor6: 0,
-              faceOrientation: placeholder.faceOrientation,
-              maxDownSelection: placeholder.maxDownSelection,
-              maxUpSelection: placeholder.maxUpSelection,
-              moveRange: placeholder.moveRange,
-            );
-            shieldMap[k] = ph;
-            shields.add(ph);
-          }
-          shields.add(placeholder);
+        // ضمّني ال-placeholder بليست shields بحيث الفهرس يطابق رقم الوحدة
+        if (u < 0) continue;
+        if (u < shields.length) {
+          shields[u] = placeholder;
         } else {
-          // داخل النطاق الحالي للّست: عدّلي العنصر إن كان null (نادرًا)
-          if (u >= 0 && u < shields.length) {
-            shields[u] = shields[u] ?? placeholder;
+          // كبّري اللست حتى توصلي للفهرس u ثم أضيفي
+          while (shields.length < u) {
+            shields.add(ShieldData.empty(unitNumber: shields.length));
           }
+          shields.add(placeholder);
+        }
+      } else {
+        // تأكدي أن قائمة shields فيها عنصر عند الفهرس u
+        if (u >= shields.length) {
+          while (shields.length < u) {
+            shields.add(ShieldData.empty(unitNumber: shields.length));
+          }
+          shields.add(shieldMap[u]!);
+        } else {
+          shields[u] = shieldMap[u]!;
         }
       }
     }
+  }
+
+  /// بيرجع بيانات شيلد جاهزة للعرض.
+  /// إذا ما كانت موجودة، بيولّد Placeholder ويرجعها (ما بيخلّي الـ UI ينهار).
+  ShieldData getOrCreateUnit(int unit) {
+    _ensurePlaceholdersForRange(unit, unit);
+    return shieldMap[unit]!;
+  }
+
+  /// بيرجع البيانات فقط إذا موجودة (بدون توليد جديد).
+  ShieldData? tryGetUnit(int unit) => shieldMap[unit];
+
+  /// وصول آمن للعناصر عند الرسم بالـ index
+  ShieldData shieldsSafe(int index) {
+    if (index < 0) return ShieldData.empty(unitNumber: 0);
+    if (index >= shields.length) {
+      _ensurePlaceholdersForRange(index, index);
+    }
+    return shields[index];
   }
 
   // == مؤقت إلغاء التحديد ==
@@ -212,7 +222,8 @@ class ShieldController {
     }
 
     // تحديد فردي يمين ضمن min(حدود النظام، 5)
-    if (selectionDirection == Direction.none || selectionDirection == Direction.right) {
+    if (selectionDirection == Direction.none ||
+        selectionDirection == Direction.right) {
       final maxRight = lim.right < singleCap ? lim.right : singleCap;
       final desired = selectionDistance + 1;
       final clamped = desired > maxRight ? maxRight : desired;
@@ -249,7 +260,8 @@ class ShieldController {
     }
 
     // تحديد فردي يسار ضمن min(حدود النظام، 5)
-    if (selectionDirection == Direction.none || selectionDirection == Direction.left) {
+    if (selectionDirection == Direction.none ||
+        selectionDirection == Direction.left) {
       final maxLeft = lim.left < singleCap ? lim.left : singleCap;
       final desired = selectionDistance - 1;
       final clamped = desired < -maxLeft ? -maxLeft : desired;
@@ -262,7 +274,6 @@ class ShieldController {
         onControlChanged?.call();
       }
     }
-
   }
 
   // == مجموعة يمين ==
@@ -362,20 +373,36 @@ class ShieldController {
   // == تحديث بيانات الشيلد (من البلوتوث) ==
   void updateShieldData(int index, ShieldData newData) {
     if (index < 0) return;
+
     if (index < shields.length) {
       shields[index] = newData;
     } else if (index == shields.length) {
       shields.add(newData);
     } else {
-      debugPrint("⚠️ Skipped update: Index $index is too far beyond current list.");
+      debugPrint("⚠️ Skipped update: Index $index too far (shields.len=${shields.length})");
       return;
     }
-    shieldMap[newData.unitNumber] = newData;
+
+    // 🔧 استخدم index كمفتاح إذا unitNumber = null
+    final key = newData.unitNumber ?? index;
+    shieldMap[key] = newData;
+
+    // (اختياري) طباعات تشخيص
+  /*  print("🔄 updateShieldData[$index]");
+    print("   unitNumber   = ${newData.unitNumber}");
+    print("   pressure1    = ${newData.pressure1}");
+    print("   pressure2    = ${newData.pressure2}");
+    print("   ramStroke    = ${newData.ramStroke}");
+    print("   shields.len  = ${shields.length}");
+    print("   map.len      = ${shieldMap.length}");
+    print("   map.keys     = ${shieldMap.keys.join(', ')}");*/
+
     onUpdate?.call();
   }
 
   // == أدوات للـ UI ==
   bool hasData(int unitNumber) => shieldMap.containsKey(unitNumber);
+
   ShieldData? dataFor(int unitNumber) => shieldMap[unitNumber];
 
   int get highlightedUnit => currentShield + selectionDistance;
@@ -397,7 +424,9 @@ class ShieldController {
     final minAllowed = b.minAllowed;
     final maxAllowed = b.maxAllowed;
 
-    final totalSpan = (maxAllowed >= minAllowed) ? (maxAllowed - minAllowed + 1) : 0;
+    final totalSpan = (maxAllowed >= minAllowed)
+        ? (maxAllowed - minAllowed + 1)
+        : 0;
     if (totalSpan <= 0) return const [];
 
     final win = totalSpan < desiredCount ? totalSpan : desiredCount;
@@ -414,17 +443,19 @@ class ShieldController {
   void setValveFunction(int slot, int code) {
     if (slot < 0 || slot >= 6) return;
     valveFunctions[slot] = code & 0xFFFF;
+    print("🔘 setValveFunction(slot=$slot, code=0x${code.toRadixString(16)})");
     onUpdate?.call();
-    onControlChanged?.call();
-    _armIdleTimer();
+    onControlChanged?.call();  // هذا يستدعي sendControlNow داخل BluetoothService
+    //_armIdleTimer();
   }
 
   void clearValveSlot(int slot) {
     if (slot < 0 || slot >= 6) return;
     valveFunctions[slot] = 0;
+    print("🔘 clearValveSlot(slot=$slot)");
     onUpdate?.call();
     onControlChanged?.call();
-    _armIdleTimer();
+    //_armIdleTimer();
   }
 
   void clearValveFunctions() {
@@ -433,33 +464,43 @@ class ShieldController {
     }
     onUpdate?.call();
     onControlChanged?.call();
-    _armIdleTimer();
+    //_armIdleTimer();
   }
 
   void setExtraFunction(int code) {
     extraFunction = code & 0xFF;
     onUpdate?.call();
     onControlChanged?.call();
-    _armIdleTimer();
+  //  _armIdleTimer();
   }
 
   // == بايلود التحكم 20 بايت ==
   Uint8List buildControlPayload(int counter) {
     final p = Uint8List(20);
-    p[0] = 0; p[1] = 0;
+    p[0] = 0;
+    p[1] = 0;
     p[2] = selectionSizeForMcu & 0xFF;
     p[3] = (selectionDistanceForMcu & 0xFF);
     p[4] = startDirectionForMcu & 0xFF;
+
     for (int i = 0; i < 6; i++) {
       final v = (i < valveFunctions.length) ? valveFunctions[i] : 0;
-      p[5 + i * 2] = (v & 0xFF);
-      p[6 + i * 2] = ((v >> 8) & 0xFF);
+      p[5 + i * 2] = (v & 0xFF);           // LSB
+      p[6 + i * 2] = ((v >> 8) & 0xFF);    // MSB
     }
+
+    // ✅ طباعة حقل الأزرار [5..16]
+    final view = List<int>.generate(12, (k) => p[5 + k]);
+    print('buttons[5..16] = ${view.map((b)=>b.toRadixString(16).padLeft(2,"0")).join(" ")}  '
+        'activeSlots=${valveFunctions.where((v)=>v!=0).length}');
+
     p[17] = (extraFunction & 0xFF);
     p[18] = (counter & 0xFF);
     p[19] = 0;
     return p;
+
   }
+
   void generateShield(int index) {
     if (index < 0) return;
     // إذا الشيلد موجود مسبقاً ما نعيد إضافته
@@ -476,7 +517,8 @@ class ShieldController {
         maxUpSelection: 0,
         maxDownSelection: 0,
       ));
-    }}
+    }
+  }
 
   // == Reset ==
   void reset() {
@@ -484,6 +526,22 @@ class ShieldController {
     selectionDistance = 0;
     groupSize = 0;
     selectionDirection = Direction.none;
+    onUpdate?.call();
+    onControlChanged?.call();
+  }
+
+  // يمسح كل الداتا والاختيارات ويحدّث الواجهة
+  void clearData() {
+    shields.clear();
+    shieldMap.clear();
+    connectionShieldName = null;
+
+    // نرجع الحالة الافتراضية للاختيار
+    selectionDistance = 0;
+    groupSize = 0;
+    selectionDirection = Direction.none;
+
+    // بلّغي الواجهة
     onUpdate?.call();
     onControlChanged?.call();
   }
@@ -504,9 +562,11 @@ class ShieldController {
           sensor6: 0,
           faceOrientation: 0,
           maxDownSelection: 2,
-          maxUpSelection: 13, // مثال: 13 يمين
+          maxUpSelection: 13,
+          // مثال: 13 يمين
           moveRange: 30,
         ),
       );
     }
-  }}
+  }
+}

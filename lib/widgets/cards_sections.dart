@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_projects/cotrollers/shield_controller.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
-
+import '../cotrollers/shield_controller.dart';
+import '../utils/responsive.dart';
 import 'ShieldDataTable.dart';
 import 'controller_info_with_pad.dart';
 import 'shield_visualizer_section.dart';
@@ -59,38 +59,31 @@ class _ControlInfoAndShieldSectionState
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
-
-    const double pageHeight = 220; // ارتفاع موحّد لكل الصفحات
+    final ui = UIScale.of(context);
 
     return Expanded(
       child: Column(
         children: [
+          const SizedBox(height: 8),
           SizedBox(
-            height: pageHeight,
+            height: ui.pageH,
             child: PageView(
               controller: _pageController,
               children: [
-                // الصفحة الأولى: الكارد
                 ControllerInfoWithPad(controller: c),
-
-                // الصفحة الثانية: الشيلدات
                 ShieldVisualizerSection(controller: c),
-
-                // الصفحة الثالثة: الجدول
                 Scrollbar(
                   controller: _tableScrollController,
                   thumbVisibility: true,
                   radius: const Radius.circular(10),
                   child: SingleChildScrollView(
                     controller: _tableScrollController,
-                    padding: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.only(bottom: 12),
                     child: ShieldInfoTable(
                       shields: c.shields,
                       currentShield: c.currentShield,
                       highlightedShield: c.selectionDistance != 0 &&
-                          c.groupSize == 0
-                          ? c.selectionStart
-                          : null,
+                          c.groupSize == 0 ? c.selectionStart : null,
                       selectedShields: displayedShields,
                     ),
                   ),
@@ -98,15 +91,17 @@ class _ControlInfoAndShieldSectionState
               ],
             ),
           ),
-          const SizedBox(height: 8),
-          SmoothPageIndicator(
-            controller: _pageController,
-            count: 3,
-            effect: WormEffect(
-              dotHeight: 8,
-              dotWidth: 8,
-              activeDotColor: Colors.blue.shade800,
-              dotColor: Colors.grey.shade400,
+          SizedBox(height: ui.gapBelowPage),
+          Padding(
+            padding: EdgeInsets.only(bottom: ui.indicatorPad),
+            child: SmoothPageIndicator(
+              controller: _pageController,
+              count: 3,
+              effect: WormEffect(
+                dotHeight: 8, dotWidth: 8,
+                activeDotColor: Colors.blue.shade800,
+                dotColor: Colors.grey.shade400,
+              ),
             ),
           ),
         ],

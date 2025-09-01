@@ -109,8 +109,8 @@ class _ControlScreenState extends State<ControlScreen> {
     const SizedBox(width: 12),
     Text(
     controller.connectionShieldName != null
-    ? 'DRD_EC${controller.connectionShieldName}'
-        : 'DRD_EC${controller.currentShield.toString().padLeft(3, '0')}',
+    ? controller.connectionShieldName!
+        : controller.currentShield.toString().padLeft(3, '0'),
     style: const TextStyle(
     fontWeight: FontWeight.bold,
     fontSize: 18,
@@ -127,9 +127,11 @@ class _ControlScreenState extends State<ControlScreen> {
     ValueListenableBuilder<bool>(
     valueListenable: _isGridEnabled,
     builder: (_, enabled, _) => GestureDetector(
-    onTapDown: (_) => _isGridEnabled.value = true,
-    onTapUp: (_) => _isGridEnabled.value = false,
-    onTapCancel: () => _isGridEnabled.value = false,
+    onTapDown: (_) { _isGridEnabled.value = true;
+      print("hand enable true");
+    },
+    onTapUp: (_) { _isGridEnabled.value = false; print("hand enable false");     }
+,    onTapCancel: () { _isGridEnabled.value = false;  print("hand enable false");},
     child: Container(
     decoration: BoxDecoration(
     color: Colors.white,

@@ -1,5 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.sana.fluttercontrol">
-    <!-- Bluetooth permissions -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.drd.ecremote">
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation"/>
@@ -9,7 +8,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>
     <application
-        android:label="flutter_projects"
+        android:label="EC-Remote App"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -51,5 +50,4 @@
             <data android:mimeType="text/plain"/>
         </intent>
     </queries>
-
 </manifest>

@@ -2,12 +2,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter_projects/services/bluetooth_services.dart' as custom;
-
 import '../cotrollers/shield_controller.dart';
+import '../services/bluetooth_services.dart' as custom;
 import 'ControlScreen.dart';
 
-const bool FILTER_DRD_ONLY = false;
+const bool FILTER_DRD_ONLY = true;
 const String DRD_PREFIX = 'DRD_';
 
 class ConnectionScreen extends StatefulWidget {
@@ -34,7 +33,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       selectionDirection: Direction.none,
       onUpdate: () => setState(() {}),
     );
-    _controller.initDummyData();
+   // _controller.initDummyData();
+    _controller.clearData();
     _initBluetoothAndScan();
   }
 
@@ -94,27 +94,14 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     _startScan();
   }
 
-  // ✅ هذه الدالة حالياً لا تتصل فعلياً، فقط تفتح الواجهة لتجربة البيانات الوهمية
   Future<void> _connect(BluetoothDevice device) async {
-    _controller.initDummyData();
-    // ❗ علّق هذا السطر لاحقاً عند اختبار متحكم حقيقي:
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ControlScreen(
-          controller: _controller,
-          bluetoothService: custom.BluetoothService(
-            shieldController: _controller,
-            deviceName: device.platformName,
-            onDataReceived: (data) => print("Received: $data"),
-          ),
-        ),
-      ),
-    );
+    // مهم: أوقفي المسح قبل الاتصال
+    await FlutterBluePlus.stopScan();
+    await _scanSub?.cancel();
+    final bestName= _deviceName(device);
+    _controller.connectionShieldName=bestName;
+    _controller.onUpdate?.call();
 
-    // ✅ عندما يصبح معك المتحكم، فعّل الكود الحقيقي التالي بدل من الكود أعلاه:
-
-    /*
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -123,8 +110,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
     final service = custom.BluetoothService(
       shieldController: _controller,
-      deviceName: device.platformName,
-      onDataReceived: (data) => print("Received: $data"),
+      deviceName: bestName,
+      onDataReceived: (data) {
+        print("RX: ${data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}");}
     );
 
     try {
@@ -148,7 +136,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         SnackBar(content: Text('Connection failed: $e')),
       );
     }
-    */
+
   }
 
   String _deviceName(BluetoothDevice d) {
