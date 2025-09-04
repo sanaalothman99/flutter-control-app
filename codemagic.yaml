@@ -1,18 +1,16 @@
 workflows:
   ios-appstore:
     name: iOS App Store / TestFlight (IPA)
-    integrations:
-      app_store_connect: CodemagicKey   # <-- اسم تكامل Apple Developer Portal لديك
+
     environment:
       flutter: stable
       xcode: latest
-      vars:
-        BUNDLE_ID: com.drd.ecremote     # <-- نفس الـ Bundle ID المسجّل في Apple
       ios_signing:
         distribution_type: app_store     # <-- يطلب Distribution (App Store)
-        bundle_identifier: $BUNDLE_ID    # <-- يطابق الـ App ID
+        bundle_identifier: com.drd.ecremote   # <-- يطابق الـ App ID
     scripts:
       - flutter pub get
+      - xcode-project use-profiles
       - flutter build ipa --release --no-tree-shake-icons
     artifacts:
       - build/ios/ipa/*.ipa
