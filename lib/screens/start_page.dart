@@ -57,7 +57,7 @@ class HomePage extends StatelessWidget{
                       ],
                     ),
                     child: ElevatedButton(onPressed: (){
-                      Navigator.push(context, MaterialPageRoute(builder: (context)=> const ConnectionScreen()),);
+                    //  Navigator.push(context, MaterialPageRoute(builder: (context)=> const ConnectionScreen()),);
                     },
                       style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.transparent,
