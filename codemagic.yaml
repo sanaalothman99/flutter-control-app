@@ -1,53 +1,12 @@
 workflows:
-  # ========= ANDROID =========
-  android-debug:
-    name: Android Debug (APK)
-    environment:
-      flutter: stable
-      java: 17
-    scripts:
-      - flutter pub get
-      - flutter build apk --debug
-    artifacts:
-      - build/app/outputs/flutter-apk/app-debug.apk
-
-  android-release-apk:
-    name: Android Release (APK)
-    environment:
-      flutter: stable
-      java: 17
-    scripts:
-      - flutter pub get
-      - flutter build apk --release
-    artifacts:
-      - build/app/outputs/flutter-apk/app-release.apk
-
-  android-release-aab:
-    name: Android Release (AAB for Play)
-    environment:
-      flutter: stable
-      java: 17
-    scripts:
-      - flutter pub get
-      - flutter build appbundle --release
-    artifacts:
-      - build/app/outputs/bundle/release/app-release.aab
-
-
-  ios-testflight:
-    name: iOS TestFlight (manual signing)
+  ios-appstore:
+    name: iOS App Store / TestFlight (IPA)
     environment:
       flutter: stable
       xcode: latest
-      ios_signing:
-        # ⚠️ لا تضيفي distribution_type هنا مع المراجع اليدوية
-        certificates:
-          - EC-Remote Distribution     # مثال: Apple Distribution (Codemagic)
-        provisioning_profiles:
-          - EC-Remote Distribution   # مثال: AppStore com.drd.ecremote
     scripts:
       - flutter pub get
-      - flutter build ipa --release --no-tree-shake-icons
+      - flutter build ipa --release
     artifacts:
       - build/ios/ipa/*.ipa
     publishing:
@@ -56,3 +15,5 @@ workflows:
         key_id: $APP_STORE_KEY_ID
         issuer_id: $APP_STORE_ISSUER_ID
         submit_to_testflight: true
+    integrations:
+      app_store_connect: Codemagic
