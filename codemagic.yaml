@@ -13,6 +13,18 @@ workflows:
       # يضبط Signing/Profiles على مشروع Xcode قبل البناء
       - name: Set up code signing settings on Xcode project
         script: xcode-project use-profiles
+      - name: Build Runner scheme only
+        script: |
+          xcodebuild -workspace ios/Runner.xcworkspace \
+                     -scheme Runner \
+                     -configuration Release \
+                     -sdk iphoneos \
+                     -archivePath $PWD/build/Runner.xcarchive archive
+      - name: Export IPA
+        script: |
+          xcodebuild -exportArchive \
+                     -archivePath $PWD/build/Runner.xcarchive \
+                     -exportOptionsPlist ios/Runner/ExportOptions.plist \-exportPath $PWD/build/ios
       # بناء IPA (Runner هو السكيم الافتراضي بتطبيقات Flutter)
       - flutter build ipa --release --no-tree-shake-icons
     artifacts:
