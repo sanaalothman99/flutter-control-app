@@ -33,39 +33,21 @@ workflows:
     artifacts:
       - build/app/outputs/bundle/release/app-release.aab
 
-  # ========= iOS =========
-  ios-simulator:
-    name: iOS Simulator (.app, بدون توقيع)
-    environment:
-      flutter: stable
-      xcode: latest
-    scripts:
-      - flutter pub get
-      - flutter build ios --simulator --no-codesign
-    artifacts:
-      - build/ios/iphonesimulator/*.app
 
-  ios-adhoc:
-    name: iOS AdHoc (IPA للأجهزة المسجّلة)
+  ios-testflight:
+    name: iOS TestFlight (manual signing)
     environment:
       flutter: stable
       xcode: latest
+      ios_signing:
+        # ⚠️ لا تضيفي distribution_type هنا مع المراجع اليدوية
+        certificates:
+          - EC-Remote Distribution     # مثال: Apple Distribution (Codemagic)
+        provisioning_profiles:
+          - EC-Remote Distribution   # مثال: AppStore com.drd.ecremote
     scripts:
       - flutter pub get
-      # لو عندك Provisioning/Certificates مضافة في Codemagic Portal بيوقّع أوتو
-      - flutter build ipa --release
-    artifacts:
-      - build/ios/ipa/*.ipa
-
-  ios-appstore:
-    name: iOS App Store / TestFlight (IPA)
-    environment:
-      flutter: stable
-      xcode: latest
-    scripts:
-      - flutter pub get
-      # نبني بدون تحديد export-options، Codemagic يتولّى التوقيع والنشر
-      - flutter build ipa --release
+      - flutter build ipa --release --no-tree-shake-icons
     artifacts:
       - build/ios/ipa/*.ipa
     publishing:
