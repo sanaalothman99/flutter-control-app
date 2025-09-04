@@ -1,16 +1,19 @@
 workflows:
   ios-appstore:
     name: iOS App Store / TestFlight (IPA)
-
     environment:
       flutter: stable
       xcode: latest
       ios_signing:
-        distribution_type: app_store     # <-- يطلب Distribution (App Store)
-        bundle_identifier: com.drd.ecremote   # <-- يطابق الـ App ID
+        distribution_type: app_store
+        bundle_identifier: com.drd.ecremote   # << مهم جداً
     scripts:
+      - flutter clean
       - flutter pub get
-      - xcode-project use-profiles
+      # يضبط Signing/Profiles على مشروع Xcode قبل البناء
+      - name: Set up code signing settings on Xcode project
+        script: xcode-project use-profiles
+      # بناء IPA (Runner هو السكيم الافتراضي بتطبيقات Flutter)
       - flutter build ipa --release --no-tree-shake-icons
     artifacts:
       - build/ios/ipa/*.ipa
