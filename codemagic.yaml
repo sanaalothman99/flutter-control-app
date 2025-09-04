@@ -16,4 +16,4 @@ workflows:
         issuer_id: $APP_STORE_ISSUER_ID
         submit_to_testflight: true
     integrations:
-      app_store_connect: Codemagic
+      app_store_connect: CodemagicKey
