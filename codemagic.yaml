@@ -18,7 +18,6 @@ workflows:
       java: 17
     scripts:
       - flutter pub get
-      # لو عندك keystore مضاف في Codemagic استخدم التوقيع التلقائي:
       - flutter build apk --release
     artifacts:
       - build/app/outputs/flutter-apk/app-release.apk
@@ -53,7 +52,8 @@ workflows:
       xcode: latest
     scripts:
       - flutter pub get
-      - flutter build ipa --export-options-plist=ExportOptions_AdHoc.plist
+      # لو عندك Provisioning/Certificates مضافة في Codemagic Portal بيوقّع أوتو
+      - flutter build ipa --release
     artifacts:
       - build/ios/ipa/*.ipa
 
@@ -64,6 +64,13 @@ workflows:
       xcode: latest
     scripts:
       - flutter pub get
-      - flutter build ipa --export-options-plist=ExportOptions_AppStore.plist
+      # نبني بدون تحديد export-options، Codemagic يتولّى التوقيع والنشر
+      - flutter build ipa --release
     artifacts:
       - build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_API_KEY
+        key_id: $APP_STORE_KEY_ID
+        issuer_id: $APP_STORE_ISSUER_ID
+        submit_to_testflight: true
