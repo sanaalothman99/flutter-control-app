@@ -2,20 +2,26 @@ workflows:
   ios-testflight:
     name: iOS TestFlight (Codemagic)
     max_build_duration: 60
+
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
 
+      # خلّي كودماجيك يجيب ملفات التوقيع تلقائياً حسب الـ bundle id ونوع التوزيع
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.drd.ecremote
 
+      # متغيّرات مفيدة
       vars:
         BUNDLE_ID: com.drd.ecremote
+        # كودماجيك يوفّر BUILD_NUMBER تلقائياً لكل بناء، سنستخدمه بالأسفل
 
+      # إذا حفظتي مفاتيح App Store Connect كمتغيّرات في User/Team settings
+      # أعيدي نفس الأسماء هنا أو ضعيها ضمن مجموعة:
       groups:
-        - app_store_connect   # لازم تكوني ضايفة المتغيرات (API_KEY, KEY_ID, ISSUER_ID) من Codemagic settings
+        - app_store_connect   # تحتوي APP_STORE_API_KEY و APP_STORE_KEY_ID و APP_STORE_ISSUER_ID
 
     cache:
       cache_paths:
@@ -30,17 +36,16 @@ workflows:
           flutter clean
           flutter pub get
 
-      - name: iOS Pods (platform 13.0 + install)
+      - name: iOS Pods (platform 13.0 + clean + install)
         script: |
           cd ios
-          # تثبيت الـ platform iOS 13
+          # اضبط platform :ios على 13.0 (يعدّل إن وجد وإلا يضيفه)
           if grep -q "platform :ios" Podfile; then
             sed -i '' "s/platform :ios, '[^']'/platform :ios, '13.0'/" Podfile
           else
             printf "\nplatform :ios, '13.0'\n" >> Podfile
           fi
-
-          # تنظيف وإعادة تثبيت الـ pods
+          # تنظيف وحل مشاكل عدم إيجاد الموديولات
           rm -rf Podfile.lock Pods
           pod repo update
           pod install --repo-update
@@ -52,7 +57,9 @@ workflows:
 
       - name: Build IPA
         script: |
-          flutter build ipa --release --no-tree-shake-icons
+          echo "Using build number: ${BUILD_NUMBER:-1}"
+          # نمرر رقم البناء من كودماجيك مباشرة
+          flutter build ipa --release --no-tree-shake-icons --build-number=${BUILD_NUMBER:-1}
 
     artifacts:
       - build/ios/ipa/*.ipa
@@ -60,8 +67,8 @@ workflows:
 
     publishing:
       app_store_connect:
-        api_key: $APP_STORE_API_KEY
+        # لو المفاتيح محفوظة كمتغيّرات سرّية بنفس الأسماء التالية
+        api_key: $APP_STORE_API_KEY        # محتوى ملف .p8 مشفّر Base64
         key_id: $APP_STORE_KEY_ID
         issuer_id: $APP_STORE_ISSUER_ID
         submit_to_testflight: true
-        # ممكن تحددي مجموعة بيتا معيّنة إن وجدت
