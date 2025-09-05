@@ -2,23 +2,22 @@ workflows:
   ios-testflight:
     name: iOS TestFlight (Codemagic)
     max_build_duration: 60
-
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
-
-      # نطلب من كودماجيك استخدام بروفايل App Store لهذا الـ bundle id
+      # خلّي كودماجيك يجيب ملفات التوقيع تلقائياً حسب الـ bundle id ونوع التوزيع
       ios_signing:
+        distribution_type: app_store
         bundle_identifier: com.drd.ecremote
-        provisioning_profiles:
-          - profile: EC-Remote Distribution   # اكتب الاسم الظاهر عندك تماماً
 
+      # متغيّرات مفيدة
       vars:
         BUNDLE_ID: com.drd.ecremote
 
+      # اذا كنتِ تحفظي مفاتيح App Store Connect كمتغيّرات:
       groups:
-        - app_store_connect   # فيها مفاتيح App Store Connect
+        - app_store_connect   # مجموعة فيها المتغيّرات الثلاثة أدناه
 
     cache:
       cache_paths:
@@ -36,7 +35,7 @@ workflows:
       - name: iOS Pods (platform 13.0 + install)
         script: |
           cd ios
-          # اضبط platform :ios, '13.0'
+          # اضبط platform :ios, '13.0' (يعدّل إن وجد وإلا يضيفه)
           if grep -q "platform :ios" Podfile; then
             sed -i '' "s/platform :ios, '[^']'/platform :ios, '13.0'/" Podfile
           else
@@ -46,24 +45,13 @@ workflows:
           pod install
           cd ..
 
-      - name: Set up code signing on Xcode project (use profiles)
+      - name: Set up code signing on Xcode project
         script: |
-          # يفعّل التوقيع اليدوي داخل المشروع ويختار بروفايل App Store المطابق
           xcode-project use-profiles
 
-      - name: Bump version (patch) + set build number
+      - name: Build IPA
         script: |
-          # رقم النسخة من pubspec ورقم البناء من عدّاد كودماجيك
-          APP_VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //; s/+.*//')
-          BUILD_NUMBER=$CM_BUILD_NUMBER
-          echo "Using version $APP_VERSION ($BUILD_NUMBER)"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" ios/Runner/Info.plist
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" ios/Runner/Info.plist
-
-      - name: Build IPA (App Store export)
-        script: |
-          # مهم: نحدد export-method=app-store حتى يستخدم شهادة التوزيع وبروفايل App Store
-          flutter build ipa --release --no-tree-shake-icons --export-method app-store
+          flutter build ipa --release --no-tree-shake-icons
 
     artifacts:
       - build/ios/ipa/*.ipa
@@ -71,9 +59,8 @@ workflows:
 
     publishing:
       app_store_connect:
-        api_key: $APP_STORE_API_KEY
+        # إذا بتستخدمي المتغيّرات من User/Team settings خلِّيهم كمتغيّرات بيئية:
+        api_key: $APP_STORE_API_KEY        # محتوى ملف .p8 بشكل Base64
         key_id: $APP_STORE_KEY_ID
         issuer_id: $APP_STORE_ISSUER_ID
         submit_to_testflight: true
-        # بإمكانك تحديد مجموعة تجريب داخل TestFlight لو موجودة
-        # beta_groups:
