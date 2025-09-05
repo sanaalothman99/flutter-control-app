@@ -1,88 +1,92 @@
 workflows:
-  ios-testflight:
-    name: iOS TestFlight (Codemagic)
+  ios-appstore:
+    name: iOS App Store / TestFlight (IPA)
     max_build_duration: 60
+
+    # نستخدم تكامل Codemagic مع Apple (الإسم لازم يطابق اللي عندك بالـ Integrations)
+    integrations:
+      app_store_connect: CodemagicKey
 
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
 
+      # توقيع تلقائي عبر Codemagic باستخدام نوع App Store
       ios_signing:
-          distribution_type: app_store
-          bundle_identifier: com.drd.ecremote
+        distribution_type: app_store
+        bundle_identifier: com.drd.ecremote
 
-      groups:
-        - app_store_connect
+    cache:
+      cache_paths:
+        - ~/.pub-cache
+        - ios/Pods
+        - ~/Library/Caches/CocoaPods
 
     scripts:
       - name: Flutter prep
         script: |
+          flutter --version
           flutter clean
           flutter pub get
 
-      - name: iOS Pods (platform 13.0 + install)
+      - name: iOS Pods (platform 13.0 + static frameworks)
         script: |
           cd ios
+
+          # اضبط الحد الأدنى iOS 13.0
           if grep -q "platform :ios" Podfile; then
             sed -i '' "s/platform :ios, '[^']'/platform :ios, '13.0'/" Podfile
           else
             printf "\nplatform :ios, '13.0'\n" >> Podfile
           fi
-          # تأكد من use_frameworks! :linkage => :static
+
+          # استخدم frameworks ستاتيكية (يحل مشاكل flutter_blue_plus على iOS)
           if ! grep -q "use_frameworks!" Podfile; then
-            sed -i '' "1s;^;use_frameworks! :linkage => :static\n;" Podfile
+            echo "use_frameworks! :linkage => :static" >> Podfile
           fi
-          # post_install لإيقاف توقيع الـ Pods
+
+          # عطّل التوقيع عن Pods (منع تضارب التوقيع وقت الأرشفة)
           if ! grep -q "CODE_SIGNING_ALLOWED" Podfile; then
             cat >> Podfile <<'RUBY'
-          post_install do |installer|
-            installer.pods_project.targets.each do |t|
-              t.build_configurations.each do |config|
-                config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
-              end
-            end
-          end
-          RUBY
-          fi
-          pod repo update
-          pod install
-          cd ..
+  post_install do |installer|
+  installer.pods_project.targets.each do |t|
+  t.build_configurations.each do |config|
+  config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+  end
+  end
+  end
+  RUBY
+  fi
+  
+  pod repo update
+  pod install
+  cd ..
 
-      - name: Set up code signing on Xcode project (use profiles)
-        script: xcode-project use-profiles
+- name: Bump build number (تلقائي)
+  script: |
+    PLIST="ios/Runner/Info.plist"
+    CURRENT=$(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" "$PLIST" 2>/dev/null || echo 0)
+    NEXT=$(( CURRENT + 1 ))
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEXT" "$PLIST" \
+      || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $NEXT" "$PLIST"
+    echo "Using build number: $NEXT"
 
-      - name: Create ExportOptions.plist (App Store)
-        script: |
-          cat > ios/ExportOptions.plist <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key><string>app-store</string>
-            <key>signingStyle</key><string>manual</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>com.drd.ecremote</key><string>EC-Remote Distribution</string>
-            </dict>
-            <key>uploadSymbols</key><true/>
-            <key>compileBitcode</key><false/>
-          </dict>
-          </plist>
-          EOF
+- name: Set up code signing on Xcode project
+  script: |
+    # يوجه Xcode لاستخدام ملفات التوقيع التي جهزها Codemagic
+    xcode-project use-profiles
 
-      - name: Build IPA (App Store export)
-        script: |
-          flutter build ipa --release --no-tree-shake-icons \
-            --export-options-plist=ios/ExportOptions.plist
+- name: Build IPA (App Store)
+  script: |
+    # ما منحتاج ExportOptions.plist لأن Codemagic يضبطه تلقائيًا مع app_store
+    flutter build ipa --release --no-tree-shake-icons
 
-    artifacts:
-      - build/ios/ipa/*.ipa
-      - build/ios/archive/*.xcarchive
+artifacts:
+  - build/ios/ipa/*.ipa
+  - build/ios/archive/*.xcarchive
 
-    publishing:
-      app_store_connect:
-        api_key: $APP_STORE_API_KEY
-        key_id: $APP_STORE_KEY_ID
-        issuer_id: $APP_STORE_ISSUER_ID
-        submit_to_testflight: true
+publishing:
+  app_store_connect:
+    submit_to_testflight: true
+    # لو بدك ترسلي تلقائيًا لمجموعة داخلية معينة، فكي التعليق وحطي الاسم الموجود في TestFlight
