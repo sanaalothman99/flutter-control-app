@@ -1,35 +1,23 @@
 workflows:
   ios-appstore:
-    name: iOS App Store / TestFlight (IPA)
+    name: iOS App Store / TestFlight (auto-sign)
     integrations:
-      app_store_connect: CodemagicKey   # <-- اسم تكامل Apple Developer Portal لديك
+      app_store_connect: CodemagicKey
 
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
-
-      vars:
-        BUNDLE_ID: com.drd.ecremote     # <-- نفس الـ Bundle ID المسجّل في Apple
-
       ios_signing:
-        distribution_type: app_store    # <-- يطلب Distribution (App Store)
-        bundle_identifier: $BUNDLE_ID   # <-- يطابق الـ App ID
-
-    cache:
-      cache_paths:
-        - ~/.pub-cache
-        - ios/Pods
-        - ~/Library/Caches/CocoaPods
+        distribution_type: app_store
+        bundle_identifier: com.drd.ecremote
 
     scripts:
       - name: Flutter prep
         script: |
-          flutter --version
           flutter clean
           flutter pub get
-
-      - name: iOS Pods (platform 13.0 + install)
+      - name: Pods
         script: |
           cd ios
           if grep -q "platform :ios" Podfile; then
@@ -40,49 +28,12 @@ workflows:
           pod repo update
           pod install
           cd ..
-
-      - name: Bump version (patch) + set build number
+      - name: Build IPA
         script: |
-          NEW_BUILD_NUMBER=$(($(grep -Eo "CFBundleVersion\" = \"[0-9]+" ios/Runner/Info.plist | grep -Eo "[0-9]+" | tail -1 2>/dev/null || echo 0)+1))
-          flutter build ios --no-codesign --build-name=1.0.0 --build-number=${NEW_BUILD_NUMBER}
-          echo "Using build number: ${NEW_BUILD_NUMBER}"
-
-      - name: Set up code signing on Xcode project (use profiles)
-        script: |
-          xcode-project use-profiles
-
-      - name: Create ExportOptions.plist (App Store)
-        script: |
-          cat > ios/ExportOptions.plist <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>app-store</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>com.drd.ecremote</key>
-              <string>EC-Remote Distribution</string>
-            </dict>
-            <key>uploadSymbols</key>
-            <true/>
-            <key>compileBitcode</key>
-            <false/>
-          </dict>
-          </plist>
-          EOF
-
-      - name: Build IPA (App Store export)
-        script: |
-          flutter build ipa --release --no-tree-shake-icons \
-            --export-options-plist=ios/ExportOptions.plist
+          flutter build ipa --release --no-tree-shake-icons
 
     artifacts:
       - build/ios/ipa/*.ipa
-      - build/ios/archive/*.xcarchive
 
     publishing:
       app_store_connect:
