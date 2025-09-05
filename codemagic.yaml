@@ -11,8 +11,7 @@ workflows:
       # التوقيع: نستخدم بروفايل التوزيع الموجود في حسابك
       ios_signing:
         provisioning_profiles:
-          - bundle_identifier: com.drd.ecremote
-            profile: "EC-Remote AppStore Profile"   # الاسم تماماً كما في Apple Developer
+           - profile: "EC-Remote AppStore Profile"   # الاسم تماماً كما في Apple Developer
 
       # مجموعة مفاتيح App Store Connect (مضافة عندك كمتغيرات سرّية)
       groups:
