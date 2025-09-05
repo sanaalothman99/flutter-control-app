@@ -49,38 +49,38 @@ workflows:
           # عطّل التوقيع عن Pods (منع تضارب التوقيع وقت الأرشفة)
           if ! grep -q "CODE_SIGNING_ALLOWED" Podfile; then
             cat >> Podfile <<'RUBY'
-  post_install do |installer|
-  installer.pods_project.targets.each do |t|
-  t.build_configurations.each do |config|
-  config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
-  end
-  end
-  end
-  RUBY
-  fi
+            post_install do |installer|
+            installer.pods_project.targets.each do |t|
+            t.build_configurations.each do |config|
+            config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+          end
+          end
+          end
+         RUBY
+         fi
   
-  pod repo update
-  pod install
-  cd ..
+         pod repo update
+         pod install
+         cd ..
 
-- name: Bump build number (تلقائي)
-  script: |
-    PLIST="ios/Runner/Info.plist"
-    CURRENT=$(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" "$PLIST" 2>/dev/null || echo 0)
-    NEXT=$(( CURRENT + 1 ))
-    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEXT" "$PLIST" \
-      || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $NEXT" "$PLIST"
-    echo "Using build number: $NEXT"
+      - name: Bump build number (تلقائي)
+        script: |
+          PLIST="ios/Runner/Info.plist"
+          CURRENT=$(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" "$PLIST" 2>/dev/null || echo 0)
+          NEXT=$(( CURRENT + 1 ))
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEXT" "$PLIST" \
+          || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $NEXT" "$PLIST"
+          echo "Using build number: $NEXT"
 
-- name: Set up code signing on Xcode project
-  script: |
+      - name: Set up code signing on Xcode project
+        script: |
     # يوجه Xcode لاستخدام ملفات التوقيع التي جهزها Codemagic
-    xcode-project use-profiles
+         xcode-project use-profiles
 
-- name: Build IPA (App Store)
-  script: |
+      - name: Build IPA (App Store)
+        script: |
     # ما منحتاج ExportOptions.plist لأن Codemagic يضبطه تلقائيًا مع app_store
-    flutter build ipa --release --no-tree-shake-icons
+         flutter build ipa --release --no-tree-shake-icons
 
 artifacts:
   - build/ios/ipa/*.ipa
