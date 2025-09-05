@@ -12,7 +12,7 @@ workflows:
       ios_signing:
         bundle_identifier: com.drd.ecremote
         provisioning_profiles:
-          - profile: EC-Remote AppStore Profile   # اكتب الاسم الظاهر عندك تماماً
+          - profile: EC-Remote Distribution   # اكتب الاسم الظاهر عندك تماماً
 
       vars:
         BUNDLE_ID: com.drd.ecremote
