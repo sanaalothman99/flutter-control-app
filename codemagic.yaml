@@ -13,8 +13,7 @@ workflows:
         distribution_type: app_store
         bundle_identifier: com.drd.ecremote
         provisioning_profiles:
-          - bundle_identifier: com.drd.ecremote
-            profile_name: EC-Remote AppStore Profile   # اكتب الاسم الظاهر عندك تماماً
+          - profile: EC-Remote AppStore Profile   # اكتب الاسم الظاهر عندك تماماً
 
       vars:
         BUNDLE_ID: com.drd.ecremote
