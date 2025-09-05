@@ -8,25 +8,16 @@ workflows:
       xcode: latest
       cocoapods: default
 
-      # التوقيع: نستخدم بروفايل التوزيع الموجود في حسابك
       ios_signing:
-        provisioning_profiles:
-           - profile: "EC-Remote AppStore Profile"   # الاسم تماماً كما في Apple Developer
+          distribution_type: app_store
+          bundle_identifier: com.drd.ecremote
 
-      # مجموعة مفاتيح App Store Connect (مضافة عندك كمتغيرات سرّية)
       groups:
         - app_store_connect
-
-    cache:
-      cache_paths:
-        - ~/.pub-cache
-        - ios/Pods
-        - ~/Library/Caches/CocoaPods
 
     scripts:
       - name: Flutter prep
         script: |
-          flutter --version
           flutter clean
           flutter pub get
 
@@ -38,22 +29,28 @@ workflows:
           else
             printf "\nplatform :ios, '13.0'\n" >> Podfile
           fi
+          # تأكد من use_frameworks! :linkage => :static
+          if ! grep -q "use_frameworks!" Podfile; then
+            sed -i '' "1s;^;use_frameworks! :linkage => :static\n;" Podfile
+          fi
+          # post_install لإيقاف توقيع الـ Pods
+          if ! grep -q "CODE_SIGNING_ALLOWED" Podfile; then
+            cat >> Podfile <<'RUBY'
+          post_install do |installer|
+            installer.pods_project.targets.each do |t|
+              t.build_configurations.each do |config|
+                config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+              end
+            end
+          end
+          RUBY
+          fi
           pod repo update
           pod install
           cd ..
 
-      - name: Bump version (patch) + set build number
-        script: |
-          # زيادة build number تلقائياً
-          PLIST="ios/Runner/Info.plist"
-          CURRENT=$(PlistBuddy -c "Print CFBundleVersion" "$PLIST" 2>/dev/null || echo "0")
-          NEW=$(( ${CURRENT:-0} + 1 ))
-          PlistBuddy -c "Set :CFBundleVersion $NEW" "$PLIST" || PlistBuddy -c "Add :CFBundleVersion string $NEW" "$PLIST"
-          echo "Using build number: $NEW"
-
       - name: Set up code signing on Xcode project (use profiles)
-        script: |
-          xcode-project use-profiles
+        script: xcode-project use-profiles
 
       - name: Create ExportOptions.plist (App Store)
         script: |
@@ -62,19 +59,14 @@ workflows:
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-            <key>method</key>
-            <string>app-store</string>
-            <key>signingStyle</key>
-            <string>manual</string>
+            <key>method</key><string>app-store</string>
+            <key>signingStyle</key><string>manual</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>com.drd.ecremote</key>
-              <string>EC-Remote AppStore Profile</string>
+              <key>com.drd.ecremote</key><string>EC-Remote Distribution</string>
             </dict>
-            <key>uploadSymbols</key>
-            <true/>
-            <key>compileBitcode</key>
-            <false/>
+            <key>uploadSymbols</key><true/>
+            <key>compileBitcode</key><false/>
           </dict>
           </plist>
           EOF
@@ -90,8 +82,7 @@ workflows:
 
     publishing:
       app_store_connect:
-        api_key: $APP_STORE_API_KEY       # محتوى ملف .p8 بصيغة Base64
-        key_id:  $APP_STORE_KEY_ID
+        api_key: $APP_STORE_API_KEY
+        key_id: $APP_STORE_KEY_ID
         issuer_id: $APP_STORE_ISSUER_ID
         submit_to_testflight: true
-        # beta_groups:
