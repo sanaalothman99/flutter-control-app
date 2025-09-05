@@ -10,7 +10,6 @@ workflows:
 
       # نطلب من كودماجيك استخدام بروفايل App Store لهذا الـ bundle id
       ios_signing:
-        distribution_type: app_store
         bundle_identifier: com.drd.ecremote
         provisioning_profiles:
           - profile: EC-Remote AppStore Profile   # اكتب الاسم الظاهر عندك تماماً
