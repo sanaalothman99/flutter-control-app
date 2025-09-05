@@ -24,52 +24,66 @@ workflows:
         - ios/Pods
         - ~/Library/Caches/CocoaPods
 
-    scripts:
-      - name: Flutter prep
-        script: |
-          flutter --version
-          flutter clean
-          flutter pub get
+scripts:
+  - name: Flutter prep
+    script: |
+      flutter --version
+      flutter clean
+      flutter pub get
 
-      - name: iOS Pods (platform 13.0 + install)
-        script: |
-          cd ios
-          if grep -q "platform :ios" Podfile; then
-            sed -i '' "s/platform :ios, '[^']'/platform :ios, '13.0'/" Podfile
-          else
-            printf "\nplatform :ios, '13.0'\n" >> Podfile
-          fi
-          pod repo update
-          pod install
-          cd ..
+  - name: iOS Pods (platform 13.0 + install)
+    script: |
+      cd ios
+      if grep -q "platform :ios" Podfile; then
+        sed -i '' "s/platform :ios, '[^']'/platform :ios, '13.0'/" Podfile
+      else
+        printf "\nplatform :ios, '13.0'\n" >> Podfile
+      fi
+      pod repo update
+      pod install
+      cd ..
 
-      - name: Bump version (patch) + set build number
-        script: |
-          # اقرأ النسخة الحالية من pubspec.yaml (شكلها: version: 1.2.3+45)
-          CURRENT_LINE=$(grep -E '^version:' pubspec.yaml | head -n1 | awk '{print $2}')
-          CURRENT_SEMVER=${CURRENT_LINE%%+*}      # 1.2.3
-          IFS='.' read -r MAJ MIN PAT <<< "$CURRENT_SEMVER"
-          NEW_PATCH=$((PAT+1))
-          NEW_SEMVER="${MAJ}.${MIN}.${NEW_PATCH}"  # مثال: 1.2.4
+  - name: Bump version (patch) + set build number
+    script: |
+      CURRENT_LINE=$(grep -E '^version:' pubspec.yaml | head -n1 | awk '{print $2}')
+      CURRENT_SEMVER=${CURRENT_LINE%%+*}
+      IFS='.' read -r MAJ MIN PAT <<< "$CURRENT_SEMVER"
+      NEW_PATCH=$((PAT+1))
+      NEW_SEMVER="${MAJ}.${MIN}.${NEW_PATCH}"
+      echo "BUILD_NAME=${NEW_SEMVER}" >> $CM_ENV
+      echo "BUILD_NUMBER_VAL=${BUILD_NUMBER}" >> $CM_ENV
 
-          # استخدم build number الجاهز من Codemagic
-          echo "New version: ${NEW_SEMVER}  |  Build number: ${BUILD_NUMBER}"
+  - name: Set up code signing on Xcode project
+    script: |
+      xcode-project use-profiles
 
-          # نخلي Flutter يستخدمهم مباشرة بدون تعديل الملف
-          echo "BUILD_NAME=${NEW_SEMVER}" >> $CM_ENV
-          echo "BUILD_NUMBER_VAL=${BUILD_NUMBER}" >> $CM_ENV
+  - name: Build IPA (Flutter)
+    script: |
+      flutter build ipa \
+        --release \
+        --no-tree-shake-icons \
+        --build-name="${BUILD_NAME}" \
+        --build-number="${BUILD_NUMBER_VAL}"
 
-      - name: Set up code signing on Xcode project
-        script: |
-          xcode-project use-profiles
-
-      - name: Build IPA (uses auto version + build number)
-        script: |
-          flutter build ipa \
-            --release \
-            --no-tree-shake-icons \
-            --build-name="${BUILD_NAME}" \
-            --build-number="${BUILD_NUMBER_VAL}"
+  - name: Check for IPA + fallback export
+    script: |
+      echo ">>> Listing build/ios:"
+      ls -la build/ios || true
+      echo ">>> Searching for .ipa under build/ios:"
+      find build/ios -name "*.ipa" -maxdepth 3 -print || true
+      
+      if ls build/ios/ipa/*.ipa 1>/dev/null 2>&1; then
+        echo "IPA found ✅"
+      else
+        echo "No IPA found. Trying direct Xcode export…"
+        # يصدر IPA مؤكد باستخدام أدوات كودماجيك
+        xcode-project build-ipa \
+          --workspace ios/Runner.xcworkspace \
+          --scheme Runner \
+          --archive-flags="-destination generic/platform=iOS" \
+          --export-method app-store
+        echo ">>> After fallback, searching again:"
+        find build/ios -name "*.ipa" -maxdepth 5 -print || true
 
     artifacts:
       - build/ios/ipa/*.ipa
