@@ -2,22 +2,25 @@ workflows:
   ios-testflight:
     name: iOS TestFlight (Codemagic)
     max_build_duration: 60
+
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
-      # خلّي كودماجيك يجيب ملفات التوقيع تلقائياً حسب الـ bundle id ونوع التوزيع
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.drd.ecremote
 
-      # متغيّرات مفيدة
+      # خلي كودماجيك يجيب الشهادات/البروفايل من حسابك أو من الـ Team settings
+      ios_signing:
+        # نشتغل Manual باستخدام البروفايل اللي موجود أصلاً عندك
+        provisioning_profiles:
+        - profile: EC-Remote Distribution   # انتبهي للاسم تماماً مثل ما هو بكودماجيك
+
+      # مفيد لو حبّيتي تعيدي استخدام الـ bundle id
       vars:
         BUNDLE_ID: com.drd.ecremote
 
-      # اذا كنتِ تحفظي مفاتيح App Store Connect كمتغيّرات:
+      # مجموعة مفاتيح App Store Connect (متغيّراتك موجودة بالصورة ✔)
       groups:
-        - app_store_connect   # مجموعة فيها المتغيّرات الثلاثة أدناه
+        - app_store_connect
 
     cache:
       cache_paths:
@@ -35,7 +38,6 @@ workflows:
       - name: iOS Pods (platform 13.0 + install)
         script: |
           cd ios
-          # اضبط platform :ios, '13.0' (يعدّل إن وجد وإلا يضيفه)
           if grep -q "platform :ios" Podfile; then
             sed -i '' "s/platform :ios, '[^']'/platform :ios, '13.0'/" Podfile
           else
@@ -45,13 +47,48 @@ workflows:
           pod install
           cd ..
 
-      - name: Set up code signing on Xcode project
+      - name: Bump version (patch) + set build number
         script: |
+          # رفّعي الـ build number تلقائياً كل بناء
+          NEW_BUILD_NUMBER=$(($(grep -Eo "CFBundleVersion\" = \"[0-9]+" ios/Runner/Info.plist | grep -Eo "[0-9]+" | tail -1 2>/dev/null || echo 0)+1))
+          flutter build ios --no-codesign --build-name=1.0.0 --build-number=${NEW_BUILD_NUMBER}
+          echo "Using build number: ${NEW_BUILD_NUMBER}"
+
+      - name: Set up code signing on Xcode project (use profiles)
+        script: |
+          # يعلّم المشروع يستخدم Manual signing مع البروفايلات
           xcode-project use-profiles
 
-      - name: Build IPA
+      - name: Create ExportOptions.plist (App Store)
         script: |
-          flutter build ipa --release --no-tree-shake-icons
+          # مهم: منحط الـ mapping للبروفايل حتى exportArchive يعرف أي بروفايل يستخدم
+          cat > ios/ExportOptions.plist <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.drd.ecremote</key>
+              <string>EC-Remote Distribution</string>
+            </dict>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>compileBitcode</key>
+            <false/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Build IPA (App Store export)
+        script: |
+          # Flutter يبني + Xcode يصدّر باستخدام ExportOptions
+          flutter build ipa --release --no-tree-shake-icons \
+            --export-options-plist=ios/ExportOptions.plist
 
     artifacts:
       - build/ios/ipa/*.ipa
@@ -59,8 +96,7 @@ workflows:
 
     publishing:
       app_store_connect:
-        # إذا بتستخدمي المتغيّرات من User/Team settings خلِّيهم كمتغيّرات بيئية:
-        api_key: $APP_STORE_API_KEY        # محتوى ملف .p8 بشكل Base64
+        api_key: $APP_STORE_API_KEY      # محتوى ملف .p8 كـ Base64 (مثل ما ضفتيه)
         key_id: $APP_STORE_KEY_ID
         issuer_id: $APP_STORE_ISSUER_ID
         submit_to_testflight: true
