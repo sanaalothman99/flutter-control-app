@@ -1,37 +1,66 @@
 workflows:
-  ios-appstore:
-    name: iOS App Store / TestFlight (IPA)
+  ios-testflight:
+    name: iOS TestFlight (Codemagic)
+    max_build_duration: 60
     environment:
       flutter: stable
       xcode: latest
+      cocoapods: default
+      # خلّي كودماجيك يجيب ملفات التوقيع تلقائياً حسب الـ bundle id ونوع التوزيع
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.drd.ecremote   # << مهم جداً
+        bundle_identifier: com.drd.ecremote
+
+      # متغيّرات مفيدة
+      vars:
+        BUNDLE_ID: com.drd.ecremote
+
+      # اذا كنتِ تحفظي مفاتيح App Store Connect كمتغيّرات:
+      groups:
+        - app_store_connect   # مجموعة فيها المتغيّرات الثلاثة أدناه
+
+    cache:
+      cache_paths:
+        - ~/.pub-cache
+        - ios/Pods
+        - ~/Library/Caches/CocoaPods
+
     scripts:
-      - flutter clean
-      - flutter pub get
-      # يضبط Signing/Profiles على مشروع Xcode قبل البناء
-      - name: Set up code signing settings on Xcode project
-        script: xcode-project use-profiles
-      - name: Build Runner scheme only
+      - name: Flutter prep
         script: |
-          xcodebuild -workspace ios/Runner.xcworkspace \
-                     -scheme Runner \
-                     -configuration Release \
-                     -sdk iphoneos \
-                     -archivePath $PWD/build/Runner.xcarchive archive
-      - name: Export IPA
+          flutter --version
+          flutter clean
+          flutter pub get
+
+      - name: iOS Pods (platform 13.0 + install)
         script: |
-          xcodebuild -exportArchive \
-                     -archivePath $PWD/build/Runner.xcarchive \
-                     -exportOptionsPlist ios/Runner/ExportOptions.plist \-exportPath $PWD/build/ios
-      # بناء IPA (Runner هو السكيم الافتراضي بتطبيقات Flutter)
-      - flutter build ipa --release --no-tree-shake-icons
+          cd ios
+          # اضبط platform :ios, '13.0' (يعدّل إن وجد وإلا يضيفه)
+          if grep -q "platform :ios" Podfile; then
+            sed -i '' "s/platform :ios, '[^']'/platform :ios, '13.0'/" Podfile
+          else
+            printf "\nplatform :ios, '13.0'\n" >> Podfile
+          fi
+          pod repo update
+          pod install
+          cd ..
+
+      - name: Set up code signing on Xcode project
+        script: |
+          xcode-project use-profiles
+
+      - name: Build IPA
+        script: |
+          flutter build ipa --release --no-tree-shake-icons
+
     artifacts:
       - build/ios/ipa/*.ipa
+      - build/ios/archive/*.xcarchive
+
     publishing:
       app_store_connect:
-        api_key: $APP_STORE_API_KEY
+        # إذا بتستخدمي المتغيّرات من User/Team settings خلِّيهم كمتغيّرات بيئية:
+        api_key: $APP_STORE_API_KEY        # محتوى ملف .p8 بشكل Base64
         key_id: $APP_STORE_KEY_ID
         issuer_id: $APP_STORE_ISSUER_ID
         submit_to_testflight: true
