@@ -2,22 +2,24 @@ workflows:
   ios-testflight:
     name: iOS TestFlight (Codemagic)
     max_build_duration: 60
+
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
-      # خلّي كودماجيك يجيب ملفات التوقيع تلقائياً حسب الـ bundle id ونوع التوزيع
+
+      # يخلي Codemagic يجلب ملفات التوقيع المناسبة أوتوماتيكياً
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.drd.ecremote
 
-      # متغيّرات مفيدة
       vars:
         BUNDLE_ID: com.drd.ecremote
 
-      # اذا كنتِ تحفظي مفاتيح App Store Connect كمتغيّرات:
+      # لو خزنـتِ مفاتيح App Store Connect كمتغيرات في User/Team settings
+      # ضيفي اسم المجموعة اللي فيها المتغيرات
       groups:
-        - app_store_connect   # مجموعة فيها المتغيّرات الثلاثة أدناه
+        - app_store_connect   # APP_STORE_API_KEY, APP_STORE_KEY_ID, APP_STORE_ISSUER_ID
 
     cache:
       cache_paths:
@@ -35,7 +37,7 @@ workflows:
       - name: iOS Pods (platform 13.0 + install)
         script: |
           cd ios
-          # اضبط platform :ios, '13.0' (يعدّل إن وجد وإلا يضيفه)
+          # ثبّت platform إلى iOS 13 (يعدّل إن وجد وإلا يضيفه)
           if grep -q "platform :ios" Podfile; then
             sed -i '' "s/platform :ios, '[^']'/platform :ios, '13.0'/" Podfile
           else
@@ -45,13 +47,23 @@ workflows:
           pod install
           cd ..
 
+      - name: Bump iOS build number (auto)
+        script: |
+          # رقم بناء أوتوماتيكي (وقت يونكس) حتى يكون فريد
+          export BUILD_NUMBER=$(date +%s)
+          echo "Using BUILD_NUMBER=$BUILD_NUMBER"
+
+          # حدّث CFBundleVersion في Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" ios/Runner/Info.plist
+
       - name: Set up code signing on Xcode project
         script: |
           xcode-project use-profiles
 
       - name: Build IPA
         script: |
-          flutter build ipa --release --no-tree-shake-icons
+          # مرّر رقم البناء نفسه إلى Flutter (اختياري لكنه مفيد لو حابة تزامنيه)
+          flutter build ipa --release --no-tree-shake-icons --build-number=$BUILD_NUMBER
 
     artifacts:
       - build/ios/ipa/*.ipa
@@ -59,8 +71,9 @@ workflows:
 
     publishing:
       app_store_connect:
-        # إذا بتستخدمي المتغيّرات من User/Team settings خلِّيهم كمتغيّرات بيئية:
+        # المفاتيح من المتغيرات (المجموعة app_store_connect)
         api_key: $APP_STORE_API_KEY        # محتوى ملف .p8 بشكل Base64
         key_id: $APP_STORE_KEY_ID
         issuer_id: $APP_STORE_ISSUER_ID
         submit_to_testflight: true
+        # ممكن تحددي مجموعة بيتا معيّنة إن وجدت
