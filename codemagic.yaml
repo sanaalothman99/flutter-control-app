@@ -1,6 +1,6 @@
 workflows:
   ios-testflight:
-    name: iOS TestFlight (manual signing + debug)
+    name: iOS TestFlight (Codemagic)
     max_build_duration: 60
 
     environment:
@@ -8,13 +8,20 @@ workflows:
       xcode: latest
       cocoapods: default
 
-      ios_signing:
-        distribution_type: app_store
-        provisioning_profiles:
-          - profile: "EC-Remote AppStore Profile"
+      # متغيّرات مفيدة
+      vars:
+        BUNDLE_ID: com.drd.ecremote
+        PROFILE_NAME: EC-Remote AppStore Profile   # بدّليها تماماً للاسم الظاهر في Apple Developer / Codemagic
 
+      # مفاتيح App Store Connect (ضفتيها بمجموعة app_store_connect)
       groups:
         - app_store_connect
+
+      # توقيع iOS يدوي عبر البروفايل الموجود عندك
+      ios_signing:
+        provisioning_profiles:
+          - bundle_identifier: $BUNDLE_ID
+            profile: $PROFILE_NAME
 
     cache:
       cache_paths:
@@ -23,15 +30,6 @@ workflows:
         - ~/Library/Caches/CocoaPods
 
     scripts:
-      - name: Debug signing context (pre)
-        script: |
-          set -x
-          whoami
-          xcodebuild -version
-          security find-identity -v -p codesigning || true
-          echo "=== Installed Provisioning Profiles ==="
-          ls -la ~/Library/MobileDevice/Provisioning\ Profiles || true
-
       - name: Flutter prep
         script: |
           flutter --version
@@ -50,8 +48,20 @@ workflows:
           pod install
           cd ..
 
-      - name: Force manual code signing
+      - name: Bump version (patch) + set build number
         script: |
+          # زيادة رقم البناء تلقائياً
+          PLIST="ios/Runner/Info.plist"
+          CURRENT_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST" 2>/dev/null || echo "0")
+          NEXT_BUILD=$((CURRENT_BUILD + 1))
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEXT_BUILD" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $NEXT_BUILD" "$PLIST"
+          echo "Using build number: $NEXT_BUILD"
+          # بناء بدون توقيع ليتحضّر الأرشيف
+          flutter build ios --no-codesign --release
+
+      - name: Set up code signing on Xcode project (use profiles)
+        script: |
+          # يضبط المشروع على manual signing ويشبك البروفايل
           xcode-project use-profiles
 
       - name: Create ExportOptions.plist (App Store)
@@ -61,36 +71,83 @@ workflows:
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-            <key>method</key><string>app-store</string>
-            <key>signingStyle</key><string>manual</string>
+            <key>method</key>
+            <string>app-store</string>
+            <key>signingStyle</key>
+            <string>manual</string>
             <key>provisioningProfiles</key>
             <dict>
               <key>com.drd.ecremote</key>
               <string>EC-Remote AppStore Profile</string>
             </dict>
-            <key>uploadSymbols</key><true/>
-            <key>compileBitcode</key><false/>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>compileBitcode</key>
+            <false/>
           </dict>
           </plist>
           EOF
-          echo "Created ios/ExportOptions.plist:"
-          cat ios/ExportOptions.plist
+
+      # ---- ديبغ قبل التصدير (يتحقق من البروفايلات والـ Bundle id داخل الأرشيف) ----
+      - name: Debug signing context (pre)
+        script: |
+          whoami
+          xcodebuild -version
+          security find-identity -v -p codesigning || true
+
+          echo "== Local Provisioning Profiles =="
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles || true
+
+          echo "== Decode local provisioning profiles =="
+          for f in ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision; do
+            echo "--- $f ---"
+            /usr/bin/security cms -D -i "$f" | /usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin 2>/dev/null || true
+            /usr/bin/security cms -D -i "$f" | /usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin 2>/dev/null || true
+            /usr/bin/security cms -D -i "$f" | /usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin 2>/dev/null || true
+          done
+
+          echo "== Check archive Info.plist =="
+          APP_PLIST="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PLIST" || echo "Archive Info.plist not found"
+
+          echo "== Check embedded.mobileprovision in archive (if exists) =="
+          EMBEDDED="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app/embedded.mobileprovision"
+          if [ -f "$EMBEDDED" ]; then
+            /usr/bin/security cms -D -i "$EMBEDDED" | /usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin || true
+            /usr/bin/security cms -D -i "$EMBEDDED" | /usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin || true
+          else
+            echo "No embedded.mobileprovision yet (will be embedded at export)."
+          fi
 
       - name: Build IPA (App Store export)
         script: |
           flutter build ipa --release --no-tree-shake-icons \
             --export-options-plist=ios/ExportOptions.plist
 
+      # ---- ديبغ بعد التصدير (يتحقق من محتوى الـ IPA النهائي) ----
       - name: Debug archive contents (post)
         script: |
-          echo "=== XCARCHIVE tree ==="
-          ls -R build/ios/archive || true
-          ARCHIVE=$(ls -d build/ios/archive/*.xcarchive | head -1)
-          if [ -d "$ARCHIVE" ]; then
-            echo "Archive: $ARCHIVE"
-            /usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleIdentifier' "$ARCHIVE/Info.plist" || true
-            echo "Embedded mobileprovision name:"
-            strings "$ARCHIVE/Products/Applications/Runner.app/embedded.mobileprovision" | grep -A1 '<key>Name</key>' | head -4 || true
+          echo "== IPA folder =="
+          ls -la build/ios/ipa || true
+
+          echo "== Show ExportOptions.plist =="
+          cat ios/ExportOptions.plist || true
+
+          IPA_PATH=$(ls build/ios/ipa/*.ipa 2>/dev/null | head -n1 || true)
+          if [ -n "$IPA_PATH" ]; then
+            echo "IPA_PATH=$IPA_PATH"
+            TMP_DIR=$(mktemp -d)
+            unzip -q "$IPA_PATH" -d "$TMP_DIR"
+            APP_PLIST="$TMP_DIR/Payload/Runner.app/Info.plist"
+            echo "CFBundleIdentifier inside IPA:"
+            /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PLIST" || true
+            if [ -f "$TMP_DIR/Payload/Runner.app/embedded.mobileprovision" ]; then
+              echo "embedded.mobileprovision inside IPA:"
+              /usr/bin/security cms -D -i "$TMP_DIR/Payload/Runner.app/embedded.mobileprovision" | /usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin || true
+              /usr/bin/security cms -D -i "$TMP_DIR/Payload/Runner.app/embedded.mobileprovision" | /usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin || true
+            fi
+          else
+            echo "No IPA produced."
           fi
 
     artifacts:
