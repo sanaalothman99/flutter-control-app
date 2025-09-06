@@ -20,8 +20,7 @@ workflows:
       # توقيع iOS يدوي عبر البروفايل الموجود عندك
       ios_signing:
         provisioning_profiles:
-          - bundle_identifier: $BUNDLE_ID
-            profile: $PROFILE_NAME
+            - profile: "EC-Remote AppStore Profile"
 
     cache:
       cache_paths:
