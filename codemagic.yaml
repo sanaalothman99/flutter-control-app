@@ -1,21 +1,20 @@
 workflows:
   ios-testflight:
-    name: iOS TestFlight (auto-sign + debug)
+    name: iOS TestFlight (manual signing + debug)
     max_build_duration: 60
-
-    # هذا الاسم هو مفاتيح App Store Connect للنشر (ليس سحب البروفايل)
-    integrations:
-      app_store_connect: CodemagicKey
 
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
 
-      # تفعيل التوقيع التلقائي عبر Codemagic (يجلب شهادة وبروفايل)
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.drd.ecremote
+        provisioning_profiles:
+          - profile: "EC-Remote AppStore Profile"
+
+      groups:
+        - app_store_connect
 
     cache:
       cache_paths:
@@ -24,12 +23,22 @@ workflows:
         - ~/Library/Caches/CocoaPods
 
     scripts:
+      - name: Debug signing context (pre)
+        script: |
+          set -x
+          whoami
+          xcodebuild -version
+          security find-identity -v -p codesigning || true
+          echo "=== Installed Provisioning Profiles ==="
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles || true
+
       - name: Flutter prep
         script: |
+          flutter --version
           flutter clean
           flutter pub get
 
-      - name: Pods (platform 13.0 + install)
+      - name: iOS Pods (platform 13.0 + install)
         script: |
           cd ios
           if grep -q "platform :ios" Podfile; then
@@ -41,41 +50,48 @@ workflows:
           pod install
           cd ..
 
-      # ====== DEBUG قبل البناء ======
-      - name: Debug signing (before build)
+      - name: Force manual code signing
         script: |
-          echo "=== whoami & Xcode ==="
-          whoami || true
-          xcodebuild -version || true
+          xcode-project use-profiles
 
-          echo "=== App record (bundle id) from Info.plist ==="
-          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" ios/Runner/Info.plist || true
-
-          echo "=== Keychain identities (code signing) ==="
-          security find-identity -v -p codesigning || true
-
-          echo "=== Provisioning Profiles folder ==="
-          ls -al ~/Library/MobileDevice/Provisioning\ Profiles || echo "No profiles directory"
-
-          echo "=== Show Xcode build settings (Release) ==="
-          xcodebuild -workspace ios/Runner.xcworkspace \
-            -scheme Runner -configuration Release -showBuildSettings \
-            | egrep "CODE_SIGN|DEVELOPMENT_TEAM|PRODUCT_BUNDLE_IDENTIFIER|PROVISIONING_PROFILE" || true
-
-      - name: Build IPA (auto-sign)
+      - name: Create ExportOptions.plist (App Store)
         script: |
-          # Flutter سيستخدم xcodebuild مع التوقيع التلقائي المفعّل بواسطة ios_signing
-          flutter build ipa --release --no-tree-shake-icons
+          cat > ios/ExportOptions.plist <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.drd.ecremote</key>
+              <string>EC-Remote AppStore Profile</string>
+            </dict>
+            <key>uploadSymbols</key><true/>
+            <key>compileBitcode</key><false/>
+          </dict>
+          </plist>
+          EOF
+          echo "Created ios/ExportOptions.plist:"
+          cat ios/ExportOptions.plist
 
-      # ====== DEBUG بعد البناء (إذا فشل الأرشفة غالباً ما زال مفيد) ======
-      - name: Debug signing (after build)
+      - name: Build IPA (App Store export)
         script: |
-          echo "=== Archive path check ==="
-          ls -al build/ios/archive || true
-          echo "=== IPA path check ==="
-          ls -al build/ios/ipa || true
-          echo "=== Profiles after build ==="
-          ls -al ~/Library/MobileDevice/Provisioning\ Profiles || true
+          flutter build ipa --release --no-tree-shake-icons \
+            --export-options-plist=ios/ExportOptions.plist
+
+      - name: Debug archive contents (post)
+        script: |
+          echo "=== XCARCHIVE tree ==="
+          ls -R build/ios/archive || true
+          ARCHIVE=$(ls -d build/ios/archive/*.xcarchive | head -1)
+          if [ -d "$ARCHIVE" ]; then
+            echo "Archive: $ARCHIVE"
+            /usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleIdentifier' "$ARCHIVE/Info.plist" || true
+            echo "Embedded mobileprovision name:"
+            strings "$ARCHIVE/Products/Applications/Runner.app/embedded.mobileprovision" | grep -A1 '<key>Name</key>' | head -4 || true
+          fi
 
     artifacts:
       - build/ios/ipa/*.ipa
