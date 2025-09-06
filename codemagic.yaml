@@ -1,23 +1,28 @@
 workflows:
   ios-testflight:
-    name: iOS TestFlight (manual sign + forced bundle id)
+    name: iOS TestFlight (Codemagic)
     max_build_duration: 60
+
+    # لو عندك Integration باسم CodemagicKey خليه، أو احذفي هذا البلوك
+    integrations:
+      app_store_connect: CodemagicKey
 
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
 
-      # توقيع يدوي باستخدام البروفايل الموجود بحسابك في Codemagic (Teams > iOS provisioning profiles)
-      ios_signing:
-        provisioning_profiles:
-          - profile: EC-Remote AppStore Profile   # اسم البروفايل كما يظهر في Codemagic
-
       vars:
         BUNDLE_ID: com.drd.ecremote
 
+      # استخدمي نفس اسم البروفايل بالضبط كما يظهر في Codemagic (أو احذفي البلوك لو بتفضّلي auto)
+      ios_signing:
+        provisioning_profiles:
+          - profile: EC-Remote AppStore Profile
+
+      # مجموعة متغيّرات App Store Connect (مفاتيحك موجودة فيها)
       groups:
-        - app_store_connect   # فيها: APP_STORE_API_KEY (Base64), APP_STORE_KEY_ID, APP_STORE_ISSUER_ID
+        - app_store_connect
 
     cache:
       cache_paths:
@@ -28,15 +33,17 @@ workflows:
     scripts:
       - name: Flutter prep
         script: |
+          set -e
           flutter --version
           flutter clean
           flutter pub get
 
       - name: iOS Pods (platform 13.0 + install)
         script: |
+          set -e
           cd ios
           if grep -q "platform :ios" Podfile; then
-            sed -i '' "s/platform :ios, '[^']'/platform :ios, '13.0'/" Podfile
+            sed -i '' "s/platform :ios, '[^']'/platform :ios, '13.0'/" Podfile || true
           else
             printf "\nplatform :ios, '13.0'\n" >> Podfile
           fi
@@ -44,88 +51,79 @@ workflows:
           pod install
           cd ..
 
+      - name: Bump version (patch) + set build number
+        script: |
+          set -e
+          PLIST=ios/Runner/Info.plist
+          CUR=$(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" "$PLIST" 2>/dev/null || echo 0)
+          NEW=$((CUR+1))
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEW" "$PLIST" \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $NEW" "$PLIST"
+          echo "Using build number: $NEW"
+
       - name: Set up code signing on Xcode project (use profiles)
         script: |
-          # يفعّل التوقيع اليدوي داخل المشروع
+          set -e
           xcode-project use-profiles
 
       - name: Create ExportOptions.plist (App Store)
         script: |
+          set -e
           cat > ios/ExportOptions.plist <<'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-            <key>method</key><string>app-store</string>
-            <key>signingStyle</key><string>manual</string>
+            <key>method</key>
+            <string>app-store</string>
+            <key>signingStyle</key>
+            <string>manual</string>
             <key>provisioningProfiles</key>
             <dict>
               <key>com.drd.ecremote</key>
               <string>EC-Remote AppStore Profile</string>
             </dict>
-            <key>uploadSymbols</key><true/>
-            <key>compileBitcode</key><false/>
-            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>compileBitcode</key>
+            <false/>
           </dict>
           </plist>
           EOF
 
       - name: Build IPA (App Store export)
         script: |
-          # بنى مع التوقيع اليدوي وملف التصدير
+          set -e
           flutter build ipa --release --no-tree-shake-icons \
             --export-options-plist=ios/ExportOptions.plist
 
-      - name: Debug archive contents (pre)
+      - name: Debug archive contents (post)
         script: |
           set -e
           IPA_PATH=$(ls build/ios/ipa/*.ipa | head -n1)
-          echo "IPA_PATH=${IPA_PATH}"
-          # اطبع Info.plist داخل التطبيق
-          TMP_DIR=$(mktemp -d)
-          unzip -q "$IPA_PATH" -d "$TMP_DIR"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
-            "$TMP_DIR/Payload/"*.app/Info.plist || true
-          # اطبع كل الـ bundle ids الموجودة لمساعدة التشخيص
-          find "$TMP_DIR" -name Info.plist -print -exec /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' {} \; || true
-          # تأكد وجود provisioning مدموج
-          if [ -f "$TMP_DIR/Payload/"*.app/embedded.mobileprovision ]; then
-            echo "embedded.mobileprovision FOUND"
-          else
-            echo "embedded.mobileprovision MISSING"
-          fi
+          echo "IPA_PATH=$IPA_PATH"
+          unzip -o "$IPA_PATH" -d tmp_ipa >/dev/null
+          echo -n "BundleId in IPA: "
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" tmp_ipa/Payload/Runner.app/Info.plist
+          echo -n "embedded.mobileprovision present? "
+          security cms -D -i tmp_ipa/Payload/Runner.app/embedded.mobileprovision >/dev/null && echo yes || echo no
 
-      - name: Publish to TestFlight (force right bundle id)
+      - name: Publish to TestFlight (using API key from env)
         script: |
           set -e
           IPA_PATH=$(ls build/ios/ipa/*.ipa | head -n1)
-          echo "Publishing $IPA_PATH with bundle id $BUNDLE_ID"
-          # اكتب مفتاح .p8 من المتغيّر (Base64 -> ملف)
+          echo "Publishing: $IPA_PATH (bundle id = $BUNDLE_ID)"
+          # اكتب ملف .p8 من المتغيّر APP_STORE_API_KEY (لازم يكون Base64)
           echo "$APP_STORE_API_KEY" | base64 --decode > AuthKey_${APP_STORE_KEY_ID}.p8
-          # جرّب أداة Codemagic أولاً مع إجبار bundle id
           app-store-connect publish \
             --path "$IPA_PATH" \
             --bundle-id "$BUNDLE_ID" \
             --key-id "$APP_STORE_KEY_ID" \
             --issuer-id "$APP_STORE_ISSUER_ID" \
-            --private-key @env:APP_STORE_API_KEY \
-            --verbose || echo "codemagic publisher failed, fallback to altool"
-          # Fallback إلى altool إذا لزم
-          xcrun altool --upload-app \
-            -f "$IPA_PATH" -t ios \
-            --apiKey "$APP_STORE_KEY_ID" \
-            --apiIssuer "$APP_STORE_ISSUER_ID" \
+            --private-key @file:AuthKey_${APP_STORE_KEY_ID}.p8 \
+            --submit-to-testflight \
             --verbose
 
     artifacts:
       - build/ios/ipa/*.ipa
       - build/ios/archive/*.xcarchive
-      - ios/ExportOptions.plist
-      - flutter_drive.log
-
-    publishing:
-      app_store_connect:
-        api_key: $APP_STORE_API_KEY
-        key_id: $APP_STORE_KEY_ID
-        issuer_id: $APP_STORE_ISSUER_ID
-        submit_to_testflight: true
