@@ -1,20 +1,21 @@
 workflows:
   ios-testflight:
-    name: iOS TestFlight (auto-sign)
+    name: iOS TestFlight (auto-sign + debug)
     max_build_duration: 60
 
+    # هذا الاسم هو مفاتيح App Store Connect للنشر (ليس سحب البروفايل)
     integrations:
-      app_store_connect: CodemagicKey   # اسم التكامل عندك (اختياري إذا مفعل من UI)
+      app_store_connect: CodemagicKey
 
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
+
+      # تفعيل التوقيع التلقائي عبر Codemagic (يجلب شهادة وبروفايل)
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.drd.ecremote
-      groups:
-        - app_store_connect              # إذا عم تعتمدي على متغيرات API Key
 
     cache:
       cache_paths:
@@ -28,7 +29,7 @@ workflows:
           flutter clean
           flutter pub get
 
-      - name: iOS Pods (platform 13.0 + install)
+      - name: Pods (platform 13.0 + install)
         script: |
           cd ios
           if grep -q "platform :ios" Podfile; then
@@ -40,9 +41,41 @@ workflows:
           pod install
           cd ..
 
+      # ====== DEBUG قبل البناء ======
+      - name: Debug signing (before build)
+        script: |
+          echo "=== whoami & Xcode ==="
+          whoami || true
+          xcodebuild -version || true
+
+          echo "=== App record (bundle id) from Info.plist ==="
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" ios/Runner/Info.plist || true
+
+          echo "=== Keychain identities (code signing) ==="
+          security find-identity -v -p codesigning || true
+
+          echo "=== Provisioning Profiles folder ==="
+          ls -al ~/Library/MobileDevice/Provisioning\ Profiles || echo "No profiles directory"
+
+          echo "=== Show Xcode build settings (Release) ==="
+          xcodebuild -workspace ios/Runner.xcworkspace \
+            -scheme Runner -configuration Release -showBuildSettings \
+            | egrep "CODE_SIGN|DEVELOPMENT_TEAM|PRODUCT_BUNDLE_IDENTIFIER|PROVISIONING_PROFILE" || true
+
       - name: Build IPA (auto-sign)
         script: |
+          # Flutter سيستخدم xcodebuild مع التوقيع التلقائي المفعّل بواسطة ios_signing
           flutter build ipa --release --no-tree-shake-icons
+
+      # ====== DEBUG بعد البناء (إذا فشل الأرشفة غالباً ما زال مفيد) ======
+      - name: Debug signing (after build)
+        script: |
+          echo "=== Archive path check ==="
+          ls -al build/ios/archive || true
+          echo "=== IPA path check ==="
+          ls -al build/ios/ipa || true
+          echo "=== Profiles after build ==="
+          ls -al ~/Library/MobileDevice/Provisioning\ Profiles || true
 
     artifacts:
       - build/ios/ipa/*.ipa
@@ -50,8 +83,4 @@ workflows:
 
     publishing:
       app_store_connect:
-        # إذا عم تستخدمي مجموعة المتغيرات
-        api_key: $APP_STORE_API_KEY
-        key_id: $APP_STORE_KEY_ID
-        issuer_id: $APP_STORE_ISSUER_ID
         submit_to_testflight: true
