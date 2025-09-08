@@ -2,13 +2,18 @@ workflows:
   ios-testflight:
     name: iOS TestFlight (Codemagic)
     max_build_duration: 60
+
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
+
+      # توقيع تلقائي عبر App Store Connect على نفس الـ Bundle ID
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.drd.ecremote
+
+      # لازم تكون مجموعة المتغيّرات موجودة وفيها مفاتيح API
       groups:
         - app_store_connect
 
@@ -23,28 +28,47 @@ workflows:
         script: |
           set -e
           flutter --version
-          ruby --version
-          pod --version
           xcodebuild -version
+          pod --version
+          ruby --version
 
-      # (اختياري) إصلاح Podfile مرة واحدة
+      # يكتب Podfile صحيح (يتفادى أخطاء _dir_ و podhelper)
       - name: Ensure valid iOS Podfile
         script: |
+          set -e
           cat > ios/Podfile <<'EOF'
           platform :ios, '13.0'
           use_frameworks!
           use_modular_headers!
           ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
           project 'Runner', {
             'Debug' => :debug,
             'Profile' => :release,
             'Release' => :release,
           }
-          require File.expand_path(File.join('packages','flutter_tools','bin','podhelper'), File.expand_path('..', __dir__))
+
+          # يستخرج FLUTTER_ROOT من Generated.xcconfig
+          def flutter_root
+            generated_xcode_build_settings_path = File.expand_path(File.join('Flutter', 'Generated.xcconfig'), _dir_)
+            unless File.exist?(generated_xcode_build_settings_path)
+              raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
+            end
+            File.foreach(generated_xcode_build_settings_path) do |line|
+              match = line.match(/FLUTTER_ROOT=(.*)/)
+              return match[1].strip if match
+            end
+            raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try running flutter pub get."
+          end
+
+          require File.expand_path(File.join('packages','flutter_tools','bin','podhelper'), flutter_root)
+
           flutter_ios_podfile_setup
+
           target 'Runner' do
             flutter_install_all_ios_pods File.dirname(File.realpath(_FILE_))
           end
+
           post_install do |installer|
             installer.pods_project.targets.each do |target|
               flutter_additional_ios_build_settings(target)
@@ -67,7 +91,7 @@ workflows:
           pod install
           cd ..
 
-      # لا تبني iOS هنا؛ بس احسبي رقم البناء وصدّريه كمتغيّر
+      # فقط نحسب build number ونمرّره لخطوة البناء
       - name: Compute build number
         script: |
           set -e
@@ -76,8 +100,7 @@ workflows:
           echo "NEW_BUILD_NUMBER=$NEW_BUILD_NUMBER" | tee -a $CM_ENV
           echo "Will use build number: $NEW_BUILD_NUMBER"
 
-      # خلي كودماجيك يحقن البروفايلات قبل البناء
-      - name: Set up code signing on Xcode project (auto)
+      - name: Set up code signing (auto)
         script: |
           set -e
           xcode-project use-profiles
@@ -95,8 +118,7 @@ workflows:
           TMP=$(mktemp -d)
           unzip -q "$IPA_PATH" -d "$TMP"
           APP="$TMP/Payload/Runner.app"
-          echo "Bundle ID:"
-          /usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APP/Info.plist" || true
+          echo "Bundle ID:"; /usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APP/Info.plist" || true
           test -f "$APP/embedded.mobileprovision" && echo "embedded.mobileprovision FOUND" || echo "embedded.mobileprovision MISSING"
 
     artifacts:
@@ -105,7 +127,7 @@ workflows:
 
     publishing:
       app_store_connect:
-        api_key: $APP_STORE_API_KEY      # محتوى ملف .p8 بصيغة Base64
+        api_key: $APP_STORE_API_KEY      # محتوى ملف .p8 (Base64)
         key_id: $APP_STORE_KEY_ID
         issuer_id: $APP_STORE_ISSUER_ID
         submit_to_testflight: true
