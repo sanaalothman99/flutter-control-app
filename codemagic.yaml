@@ -37,6 +37,7 @@ workflows:
           flutter --version
           flutter clean
           flutter pub get
+          
 
       - name: iOS Pods (platform 13.0 + install)
         script: |
