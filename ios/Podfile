@@ -11,21 +11,7 @@ project 'Runner', {
   'Release' => :release,
 }
 
-# تحديد المسار الصحيح لملف Generated.xcconfig
-def flutter_root
-  generated_xcode_build_settings_path = File.expand_path(File.join(__dir__, 'Flutter', 'Generated.xcconfig'))
-  unless File.exist?(generated_xcode_build_settings_path)
-    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
-  end
-
-  File.foreach(generated_xcode_build_settings_path) do |line|
-    matches = line.match(/FLUTTER_ROOT\=(.*)/)
-    return matches[1].strip if matches
-  end
-  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try running flutter pub get."
-end
-
-require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), File.dirname(__dir__))
 
 flutter_ios_podfile_setup
 
@@ -38,4 +24,3 @@ post_install do |installer|
     flutter_additional_ios_build_settings(target)
   end
 end
-RUBY
