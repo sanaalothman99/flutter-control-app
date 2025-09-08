@@ -8,12 +8,15 @@ workflows:
       xcode: latest
       cocoapods: default
 
-      # توقيع تلقائي عبر App Store Connect على نفس الـ Bundle ID
+      # توقيع تلقائي على نفس الـ Bundle ID
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.drd.ecremote
 
-      # لازم تكون مجموعة المتغيّرات موجودة وفيها مفاتيح API
+      # لازم تكون المجموعة موجودة وفيها:
+      # APP_STORE_API_KEY (Base64 لمحتوى ملف .p8)
+      # APP_STORE_KEY_ID
+      # APP_STORE_ISSUER_ID
       groups:
         - app_store_connect
 
@@ -48,7 +51,7 @@ workflows:
             'Release' => :release,
           }
 
-          # يستخرج FLUTTER_ROOT من Generated.xcconfig
+          # يستخرج FLUTTER_ROOT من الملف المولد
           def flutter_root
             generated_xcode_build_settings_path = File.expand_path(File.join('Flutter', 'Generated.xcconfig'), __dir__)
             unless File.exist?(generated_xcode_build_settings_path)
@@ -91,7 +94,7 @@ workflows:
           pod install
           cd ..
 
-      # فقط نحسب build number ونمرّره لخطوة البناء
+      # حساب رقم البناء وتمريره كمتغير للخطوات التالية
       - name: Compute build number
         script: |
           set -e
@@ -100,16 +103,30 @@ workflows:
           echo "NEW_BUILD_NUMBER=$NEW_BUILD_NUMBER" | tee -a $CM_ENV
           echo "Will use build number: $NEW_BUILD_NUMBER"
 
+      # جلب الشهادة والبروفايل (App Store) تلقائياً + إضافتها للكي تشين
+      - name: Fetch signing files (App Store)
+        script: |
+          set -e
+          app-store-connect fetch-signing-files com.drd.ecremote --type IOS_APP_STORE --create
+          keychain add-certificates
+
+      # تفعيل استخدام البروفايلات في مشروع Xcode
       - name: Set up code signing (auto)
         script: |
           set -e
           xcode-project use-profiles
 
+      # بناء IPA عبر Xcode (يضمن إنشاء ipa فعلي)
       - name: Build IPA (release)
         script: |
           set -e
-          flutter build ipa --release --no-tree-shake-icons --build-number="$NEW_BUILD_NUMBER"
+          xcode-project build-ipa \
+            --workspace=ios/Runner.xcworkspace \
+            --scheme=Runner \
+            --archive-flags="-allowProvisioningUpdates" \
+            --build-number="$NEW_BUILD_NUMBER"
 
+      # فحص سريع للـ IPA الناتج
       - name: Debug archive contents (post)
         script: |
           set -e
@@ -127,7 +144,7 @@ workflows:
 
     publishing:
       app_store_connect:
-        api_key: $APP_STORE_API_KEY      # محتوى ملف .p8 (Base64)
+        api_key: $APP_STORE_API_KEY      # محتوى ملف .p8 مشفّر Base64
         key_id: $APP_STORE_KEY_ID
         issuer_id: $APP_STORE_ISSUER_ID
         submit_to_testflight: true
