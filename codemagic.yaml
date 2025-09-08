@@ -40,7 +40,7 @@ workflows:
             'Profile' => :release,
             'Release' => :release,
           }
-          require File.expand_path(File.join('packages','flutter_tools','bin','podhelper'), File.expand_path('..', _dir_))
+          require File.expand_path(File.join('packages','flutter_tools','bin','podhelper'), File.expand_path('..', __dir__))
           flutter_ios_podfile_setup
           target 'Runner' do
             flutter_install_all_ios_pods File.dirname(File.realpath(_FILE_))
