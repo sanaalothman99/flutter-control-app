@@ -21,12 +21,20 @@ class DataCard extends StatelessWidget {
 
     // addAd: جرّب عرض الشيلدين بعد current إن وُجدا
     final int cur = controller.currentShield;
-    final String addAd = [
-      if (cur + 1 < controller.shields.length)
-        '#${(cur + 1).toString().padLeft(3, '0')}',
-      if (cur + 2 < controller.shields.length)
-        '#${(cur + 2).toString().padLeft(3, '0')}',
-    ].join(', ');
+
+// نجيب الشيلدات المجاورة بالاعتماد على الـ tryGetUnit
+    List<String> neighbors = [];
+
+    final next1 = controller.tryGetUnit(cur + 1);
+    if (next1 != null) {
+      neighbors.add('#${(cur + 1).toString().padLeft(3, '0')}');
+    }
+
+    final next2 = controller.tryGetUnit(cur + 2);
+    if (next2 != null) {
+      neighbors.add('#${(cur + 2).toString().padLeft(3, '0')}');
+    }
+    final String addAd = neighbors.join(', ');
 
     // الضغطين والطول من الشيلد الرئيسي (أقرب للي عم يوصلك)
     final int p1 = main?.pressure1 ?? 0;

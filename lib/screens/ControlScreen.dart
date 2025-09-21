@@ -28,12 +28,28 @@ class _ControlScreenState extends State<ControlScreen> {
   // وضع إعادة الترتيب: من المينيو فقط
   final ValueNotifier<bool> isReorderMode = ValueNotifier(false);
 
+  ShieldController get controller => widget.controller;
+  BluetoothService get bluetoothService => widget.bluetoothService;
+
+  @override
+  void initState() {
+    super.initState();
+    // 🟢 شغّل مؤقت الخمول أول ما تفتح الشاشة
+    controller.resetInactivityTimer(() {
+      bluetoothService.disconnect();
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed('/connection');
+      }
+    });
+  }
+
   @override
   void dispose() {
     _isGridEnabled.dispose();
     isReorderMode.dispose();
-    widget.controller.reset();
-    widget.bluetoothService.disconnect();
+    controller.cancelInactivityTimer(); // 🟢 أوقف مؤقت الخمول
+    controller.reset();
+    bluetoothService.disconnect();
     super.dispose();
   }
 
@@ -57,21 +73,27 @@ class _ControlScreenState extends State<ControlScreen> {
       body: Padding(
         padding: EdgeInsets.symmetric(horizontal: screenW * .05),
         child: Column(
-            children: [
-            // أعلى الشاشة: الكارد/الفيجوال/الجدول (كما هو)
+          children: [
+            // أعلى الشاشة: الكارد/الفيجوال/الجدول
             ControlInfoAndShieldSection(controller: controller),
 
-        // سويتشر الأزرار + الأسهم
-        ControlBottomSwitcher(
-          handEnabled:  _isGridEnabled,
-          reorderMode:  isReorderMode,
-          controller: controller,
+            // سويتشر الأزرار + الأسهم
+            ControlBottomSwitcher(
+              handEnabled: _isGridEnabled,
+              reorderMode: isReorderMode,
+              controller: controller,
+              onUserInteraction: () {
+                controller.resetInactivityTimer(() {
+                  bluetoothService.disconnect();
+                  if (mounted) {
+                    Navigator.of(context).pushReplacementNamed('/connection');
+                  }
+                });
+              },
+            ),
+          ],
         ),
-
-
-    ],
-    ),
-    ),
+      ),
     );
   }
 
@@ -79,10 +101,11 @@ class _ControlScreenState extends State<ControlScreen> {
     return Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-    // القائمة والاسم
-    Row(
+    // القائمة + الاسم
+    Expanded(
+    child: Row(
     children: [
-    PopupMenuButton<String>(
+        PopupMenuButton<String>(
         icon: const Icon(Icons.menu, color: Colors.black87),
     onSelected: (v) {
     if (v == 'back') {
@@ -91,8 +114,8 @@ class _ControlScreenState extends State<ControlScreen> {
     isReorderMode.value = !isReorderMode.value;
     }
     },
-    itemBuilder: (_) =>  [
-    PopupMenuItem(
+    itemBuilder: (_) => [
+    const PopupMenuItem(
     value: 'back',
     child: Row(
     children: [Icon(Icons.arrow_back), SizedBox(width: 8), Text('Back')],
@@ -101,37 +124,67 @@ class _ControlScreenState extends State<ControlScreen> {
     PopupMenuItem(
     value: 'reorder',
     child: Row(
-    children: [Icon(Icons.grid_view), SizedBox(width: 8), Text(isReorderMode.value ? 'Done reordering' : 'Reorder icons')],
+    children: [
+    const Icon(Icons.grid_view),
+    const SizedBox(width: 8),
+    Text(isReorderMode.value ? 'Done reordering' : 'Reorder icons'),
+    ],
     ),
     ),
     ],
     ),
     const SizedBox(width: 12),
-    Text(
-    controller.connectionShieldName != null
-    ? controller.connectionShieldName!
-        : controller.currentShield.toString().padLeft(3, '0'),
+    Flexible(
+    child: Text(
+    controller.connectionShieldName ??
+    controller.currentShield.toString().padLeft(3, '0'),
+    overflow: TextOverflow.ellipsis,
     style: const TextStyle(
     fontWeight: FontWeight.bold,
     fontSize: 18,
     color: Colors.green,
     ),
     ),
+    ),
     ],
     ),
+    ),
 
-    // زر اليد + الشعار
+    // ✅ العداد (مع مسافة صغيرة)
+    Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 8),
+    child: ValueListenableBuilder<int>(
+    valueListenable: controller.inactivitySecondsLeft,
+    builder: (_, seconds, __) {
+    return Text(
+    "⏳ $seconds ",
+    style: const TextStyle(
+    fontSize: 14,
+    fontWeight: FontWeight.w600,
+    color: Colors.red,
+    ),
+    );
+    },
+    ),
+    ),
+
+    // زر اليد + اللوجو
     Row(
     children: [
-    // زر اليد: يفعّل/يعطّل الأزرار فقط (لا علاقة له بالـ reorder)
     ValueListenableBuilder<bool>(
     valueListenable: _isGridEnabled,
-    builder: (_, enabled, _) => GestureDetector(
-    onTapDown: (_) { _isGridEnabled.value = true;
-      print("hand enable true");
+    builder: (_, enabled, __) => GestureDetector(
+    onTapDown: (_) {
+    _isGridEnabled.value = true;
+    controller.resetInactivityTimer(() {
+    bluetoothService.disconnect();
+    if (mounted) {
+    Navigator.of(context).pushReplacementNamed('/connection');
+    }
+    });
     },
-    onTapUp: (_) { _isGridEnabled.value = false; print("hand enable false");     }
-,    onTapCancel: () { _isGridEnabled.value = false;  print("hand enable false");},
+    onTapUp: (_) => _isGridEnabled.value = false,
+    onTapCancel: () => _isGridEnabled.value = false,
     child: Container(
     decoration: BoxDecoration(
     color: Colors.white,
@@ -144,15 +197,18 @@ class _ControlScreenState extends State<ControlScreen> {
     padding: const EdgeInsets.all(8),
     child: Image.asset(
     'assets/hand.jpg',
-    width: 28,
-    height: 28,
+    width: 22,
+    height: 22,
     fit: BoxFit.contain,
     ),
     ),
     ),
     ),
-    const SizedBox(width: 16),
-    Image.asset('assets/LogoDRD.png', height: MediaQuery.of(context).size.width * .22),
+    const SizedBox(width: 12),
+    Image.asset(
+    'assets/LogoDRD.png',
+    height: 40, // 🔹 خفّضنا حجم اللوجو ليتفادى overflow
+    ),
     ],
     ),
     ],

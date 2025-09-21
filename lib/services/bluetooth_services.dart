@@ -5,7 +5,6 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../cotrollers/shield_controller.dart';
 import '../models/shield_data.dart';
 
-// ===== Helpers (للطباعة) =====
 String _hex(List<int> bytes) =>
     bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
 
@@ -14,14 +13,17 @@ class BluetoothService {
   final String deviceName;
   final void Function(List<int>) onDataReceived;
 
+
   BluetoothDevice? _device;
 
-  // RX (notify) — مستشعرات
-  static final Guid serviceUUID        = Guid("0000fe50-cc7a-482a-984a-7f2ed5b3e58f");
-  static final Guid characteristicUUID = Guid("0000fe52-8e22-4541-9d4c-21edea82ed19");
+  // RX notify
+  static final Guid serviceUUID = Guid("0000fe50-cc7a-482a-984a-7f2ed5b3e58f");
+  static final Guid characteristicUUID = Guid(
+      "0000fe52-8e22-4541-9d4c-21edea82ed19");
 
-  // TX (control write) — (fe70 service)
-  static final Guid controlServiceUUID = Guid("0000fe70-cc7a-482a-984a-7f2ed5b3e58f");
+  // TX control
+  static final Guid controlServiceUUID = Guid(
+      "0000fe70-cc7a-482a-984a-7f2ed5b3e58f");
   static final List<Guid> controlCharUUIDs = [
     Guid("0000fe72-8e22-4541-9d4c-21edea82ed19"), // WRITE
     Guid("0000fe71-8e22-4541-9d4c-21edea82ed19"), // WNR
@@ -32,43 +34,19 @@ class BluetoothService {
   BluetoothCharacteristic? _txCharacteristic;
   StreamSubscription<List<int>>? _subscription;
 
-  // تتبُّع الاتصال
   bool _isConnected = false;
+
+  bool get isConnected => _isConnected;
   StreamSubscription<BluetoothConnectionState>? _connSub;
 
-  // عدّاد تلغرام
   int _txCounter = 0;
+  Timer? _fastTxTimer;
+  Timer? _txTimer;
 
-  // جدولة الإرسال
-  Timer? _fastTxTimer;   // 200ms أثناء النشاط
-  Timer? _txTimer;       // 20s هارتبيت
-  DateTime _lastUserActivity = DateTime.now();
-  Timer? _idleWatchdog;
-  static const Duration _idleTimeout = Duration(seconds: 30);
-
-  void _bumpActivity() => _lastUserActivity = DateTime.now();
-
- /* void _startIdleWatchdog() {
-    _idleWatchdog?.cancel();
-    _idleWatchdog = Timer.periodic(const Duration(seconds: 1), (_) async {
-      final idleFor = DateTime.now().difference(_lastUserActivity);
-      final hasActive = shieldController.valveFunctions.any((v) => v != 0) ||
-          (shieldController.extraFunction != 0);
-      if (!hasActive && idleFor >= _idleTimeout) {
-        try { await disconnect(); } catch (_) {}
-      }
-    });
-  }*/
-
-  /*void _stopIdleWatchdog() {
-    _idleWatchdog?.cancel();
-    _idleWatchdog = null;
-  }*/
-
-  int? _uniteFormDeviceName(String? name){
-    if(name==null) return null;
-    final m= RegExp(r'(\d{3})$').firstMatch(name.trim());
-    return m!=null ? int.parse(m.group((1))!): null;
+  int? _uniteFormDeviceName(String? name) {
+    if (name == null) return null;
+    final m = RegExp(r'(\d{3})$').firstMatch(name.trim());
+    return m != null ? int.parse(m.group(1)!) : null;
   }
 
   BluetoothService({
@@ -81,47 +59,68 @@ class BluetoothService {
   Future<void> connect(BluetoothDevice device) async {
     _device = device;
 
-    // أوقف أي scan/محاولة سابقة
-    try { await FlutterBluePlus.stopScan(); } catch (_) {}
-    try { await device.disconnect(); } catch (_) {}
+    try {
+      await FlutterBluePlus.stopScan();
+    } catch (_) {}
+   /* try {
+      await device.disconnect();
+    } catch (_) {}*/
 
-    // محاولة اتصال (مع انتظار حالة connected)
     Future<void> tryOnce() async {
-    //  print('🔌 Connecting to ${device.platformName} (${device.remoteId.str}) ...');
-      await _device!.connect(autoConnect: false, timeout: const Duration(seconds: 30));
+      print("🔌 Trying connect to ${device.platformName} ...");
+      await _device!.connect(
+          autoConnect: false, timeout: const Duration(seconds: 30));
       await _device!.connectionState.firstWhere(
             (s) => s == BluetoothConnectionState.connected,
       );
+      print("✅ Connected to ${device.platformName}");
     }
 
     try {
       await tryOnce();
     } on FlutterBluePlusException catch (e) {
-      print('❌ Connect error 1: $e');
+      print("⚠️ First connect failed: $e, retrying...");
       await Future.delayed(const Duration(seconds: 2));
       await tryOnce();
     }
 
-    // تتبّع حالة الاتصال
     _connSub?.cancel();
     _connSub = _device!.connectionState.listen((s) {
       _isConnected = (s == BluetoothConnectionState.connected);
+      print("🔄 Connection state changed: $s");
     });
     _isConnected = true;
 
-    print('✅ Connected.');
     shieldController.connectionShieldName = deviceName;
-    final u= _uniteFormDeviceName(deviceName);
-    if(u!= null){
-      shieldController.currentShield =u;}
-    shieldController.onUpdate?.call(); // يحدث الـ AppBar فورًا
+   /* final u = _uniteFormDeviceName(deviceName);
+    if (u != null) {
+      shieldController.currentShield = u;
+    }*/
+    shieldController.currentShield = 0;
 
-    // اكتشاف الخدمات
-    print('🔍 Discovering services...');
-    await Future.delayed(const Duration(milliseconds: 400));
+    // اجبار اختيار افتراضي
+    shieldController
+      ..selectionDistance = 0
+      ..groupSize = 0
+      ..selectionDirection = Direction.none;
+    shieldController.onUpdate?.call();
+
+    // ===== Discover services =====
+    print("🔍 Discovering services...");
     final services = await _device!.discoverServices();
 
-    // ====== RX ======
+    for (final s in services) {
+      print("📡 Service: ${s.uuid}");
+      for (final c in s.characteristics) {
+        print("   ↳ Char: ${c.uuid} "
+            "props=[read=${c.properties.read}, "
+            "write=${c.properties.write}, "
+            "wnr=${c.properties.writeWithoutResponse}, "
+            "notify=${c.properties.notify}]");
+      }
+    }
+
+    // ===== RX =====
     _rxCharacteristic = null;
     for (final s in services) {
       final su = s.uuid.str.toLowerCase();
@@ -139,20 +138,20 @@ class BluetoothService {
       }
     }
     if (_rxCharacteristic == null) {
-      throw Exception('RX notify characteristic (FE52/FE51) not found');
+      throw Exception('❌ RX notify characteristic (FE52/FE51) not found');
     }
-
     await _rxCharacteristic!.setNotifyValue(true);
-   // print('✅ RX notifications enabled on ${_rxCharacteristic!.uuid}');
+   // print("✅ RX selected: ${_rxCharacteristic!.uuid}");
 
     await _subscription?.cancel();
     _subscription = _rxCharacteristic!.value.listen((data) {
-    //  print('📥 RX (${data.length} bytes) [${_rxCharacteristic!.uuid}]: ${_hex(data)}');
+    //  print("📥 RX: ${data.length} bytes [${_rxCharacteristic!.uuid}]");
+     // print("📥 RX: ${data.length} bytes -> ${data.map((b) =>b.toRadixString(16).padLeft(2,'0')).join(' ')}");
       onDataReceived(data);
       _onDataReceived(data);
     });
 
-// =============== TX (Write/WriteWithoutResponse) ===============
+    // ===== TX =====
     _txCharacteristic = null;
     BluetoothCharacteristic? preferWnr;
     BluetoothCharacteristic? preferWrite;
@@ -167,20 +166,18 @@ class BluetoothService {
           final isFe73 = cu.startsWith('0000fe73'); // wnr
 
           if (c.properties.writeWithoutResponse && (isFe71 || isFe73)) {
-            preferWnr ??= c;                 // أول WNR
+            preferWnr ??= c;
           }
           if (c.properties.write && isFe72) {
-            preferWrite ??= c;               // أول WRITE
+            preferWrite ??= c;
           }
         }
       }
     }
 
-// فضّل WNR، وإذا ما وجدت خُذ WRITE
     _txCharacteristic = preferWnr ?? preferWrite;
-
     if (_txCharacteristic == null) {
-      throw Exception('TX characteristic (FE71/FE73/FE72) not found');
+      throw Exception('❌ TX characteristic (FE71/FE73/FE72) not found');
     }
     print('✅ TX selected: ${_txCharacteristic!.uuid} '
         '[write=${_txCharacteristic!.properties.write}, '
@@ -190,23 +187,25 @@ class BluetoothService {
     shieldController.onControlChanged = _onControlChanged;
     _startHeartbeat();
     await sendControlNow();
-
-    _bumpActivity();
-   // _startIdleWatchdog();
   }
 
-  // يُستدعى كل ما تغيّر شيء بالتحكم
   void _onControlChanged() {
-    // لو غير متصل لا تعملي أي شيء
     if (!_isConnected) return;
 
-    _bumpActivity();
+   /* final hasAny = shieldController.valveFunctions.any((v) => v != 0) ||
+        shieldController.extraFunction != 0;*/
+   /*  if (shieldController.selectionSizeForMcu == 0 &&
+    (shieldController.valveFunctions.any((v) => v != 0) ||
+    shieldController.extraFunction != 0)) {
+    shieldController.groupSize = 0;
+    shieldController.selectionDistance = 0;
+    shieldController.selectionDirection = Direction.none;
+    }*/
+    // لا تغيّر selectionDistance/groupSize هون
     sendControlNow();
-
-    final hasActive = shieldController.valveFunctions.any((v) => v != 0) ||
-        (shieldController.extraFunction != 0);
-
-    if (hasActive) {
+    final hasAny = shieldController.valveFunctions.any((v) => v != 0) ||
+        shieldController.extraFunction != 0;
+    if (hasAny) {
       _startFastLoop();
       _stopHeartbeat();
     } else {
@@ -222,11 +221,13 @@ class BluetoothService {
       return;
     }
 
-    final Uint8List payload = shieldController.buildControlPayload(_txCounter++);
+    final Uint8List payload = shieldController.buildControlPayload(
+        _txCounter++);
 
-    // طباعة مرتّبة
-    final hex = payload.map((b)=>b.toRadixString(16).padLeft(2,'0')).join(' ');
-    final btns = payload.sublist(5, 17) // [5..16]
+    final hex = payload.map((b) => b.toRadixString(16).padLeft(2, '0')).join( ' ');
+      shieldController.lastTxHex= hex;
+      shieldController.onUpdate?.call();
+     final btns = payload.sublist(5, 17)
         .map((b)=>b.toRadixString(16).padLeft(2,'0')).join(' ');
     print("📤 TX (${payload.length} bytes)  "
         "[${_txCharacteristic!.uuid}] "
@@ -234,6 +235,14 @@ class BluetoothService {
         "   full = $hex\n"
         "   btns = $btns   cnt=${payload[18]}  last=${payload[19]}  "
         "size=${payload[2]}  dist=${payload[3]}  dir=${payload[4]}");
+    // طباعة كل البايتات بالهيكس مع الفهرس
+    final hexBytes = List.generate(
+      payload.length,
+          (i) => "[${i.toString().padLeft(2, '0')}] ${payload[i].toRadixString(
+          16).padLeft(2, '0')}",
+    ).join('  ');
+
+    print("📤 TX Payload (${payload.length} bytes):\n$hexBytes");
 
     final bool canNoRsp = _txCharacteristic!.properties.writeWithoutResponse;
 
@@ -250,7 +259,198 @@ class BluetoothService {
     }
   }
 
+
   // Loops
+  void _startFastLoop() {
+    if (_fastTxTimer != null) return;
+    _fastTxTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      sendControlNow();
+    });
+    print("⚡ Fast loop started (200ms)");
+  }
+
+  void _stopFastLoop() {
+    _fastTxTimer?.cancel();
+    _fastTxTimer = null;
+    print("🛑 Fast loop stopped");
+  }
+
+  void _startHeartbeat() {
+    _txTimer?.cancel();
+    _txTimer =
+        Timer.periodic(const Duration(seconds: 1), (_) => sendControlNow());
+    print("💓 Heartbeat started (20s)");
+  }
+
+  void _stopHeartbeat() {
+    _txTimer?.cancel();
+    _txTimer = null;
+    print("🛑 Heartbeat stopped");
+  }
+
+  // ================== RX PARSE ==================
+  void _onDataReceived(List<int> data) {
+    const int mainLen = 19;
+    const int addLen = 8;
+    if (data.length < mainLen) return;
+
+    try {
+      final main = ShieldData.fromBytes(data, 0);
+      shieldController.updateShieldData(0, main);
+
+      final int extras = data.length - mainLen;
+      final int nAdds = extras ~/ addLen;
+      final int leftover = extras % addLen;
+
+      for (int i = 0; i < nAdds; i++) {
+        final int offset = mainLen + i * addLen;
+        final s = ShieldData.fromBytes(data, offset);
+        shieldController.updateShieldData(1 + i, s);
+      }
+
+      if (leftover > 0) {
+        final start = mainLen + nAdds * addLen;
+        final tail = data.sublist(start);
+        final tailHex = _hex(tail);
+        print("ℹ️ RX tail [$leftover byte(s)]: $tailHex");
+      }
+      shieldController.lastRxHex=_hex(data);
+      shieldController.onUpdate?.call();
+    } catch (e, st) {
+      print("❌ RX parse error: $e");
+      print(st);
+    }
+  }
+
+  // ================== DISCONNECT ==================
+  Future<void> disconnect() async {
+    _stopFastLoop();
+    _stopHeartbeat();
+    shieldController.onControlChanged = null;
+
+    await _subscription?.cancel();
+    _subscription = null;
+
+    try {
+      await _device?.disconnect();
+      print("✅ Disconnected successfully");
+    } catch (e) {
+      print("❌ Disconnect Error: $e");
+    }
+
+    _isConnected = false;
+    await _connSub?.cancel();
+    _connSub = null;
+
+    _device = null;
+    _rxCharacteristic = null;
+    _txCharacteristic = null;
+
+    shieldController.clearData();
+  }
+
+  }
+/*class BluetoothService {
+  final ShieldController shieldController;
+  final String deviceName;
+  final void Function(List<int>) onDataReceived;
+
+  // 👇 جديد
+  final bool demoMode;
+
+  BluetoothDevice? _device;
+  BluetoothCharacteristic? _rxCharacteristic;
+  BluetoothCharacteristic? _txCharacteristic;
+  StreamSubscription<List<int>>? _subscription;
+  StreamSubscription<BluetoothConnectionState>? _connSub;
+
+  bool _isConnected = false;
+  bool get isConnected => _isConnected;
+
+  int _txCounter = 0;
+  Timer? _fastTxTimer;
+  Timer? _txTimer;
+
+  BluetoothService({
+    required this.shieldController,
+    required this.deviceName,
+    required this.onDataReceived,
+    this.demoMode = false, // 👈 افتراضي false
+  });
+
+  // 🧪 وضع تجريبي: لا بلوتوث إطلاقًا
+  Future<void> enterDemoMode() async {
+    _isConnected = true;
+    _txCounter = 0;
+    shieldController.initDummyDataForTest();
+    shieldController.onControlChanged = _onControlChanged;
+    _startHeartbeat(); // اختياري
+    print("🧪 DEMO MODE: connected (fake), dummy data loaded.");
+  }
+
+  // ================== CONNECT ==================
+  Future<void> connect(BluetoothDevice device) async {
+    if (demoMode) {
+      await enterDemoMode();
+      return; // ✅ لا تكمّلي اكتشاف خدمات
+    }
+
+    _device = device;
+    // ... بقية كود الاتصال الحقيقي تبعِك بدون تغيير ...
+  }
+
+  void _onControlChanged() {
+    if (!_isConnected) return;
+
+    final hasAny = shieldController.valveFunctions.any((v) => v != 0) ||
+        shieldController.extraFunction != 0;
+
+    sendControlNow();
+
+    if (hasAny) {
+      _startFastLoop();
+      _stopHeartbeat();
+    } else {
+      _stopFastLoop();
+      _startHeartbeat();
+    }
+  }
+
+  // ================== SEND ==================
+  Future<void> sendControlNow() async {
+    final payload = shieldController.buildControlPayload(_txCounter++);
+
+    if (demoMode) {
+      // 👇 جرّب وطبع بس
+      final hex = payload.map((b) => b.toRadixString(16).padLeft(2,'0')).join(' ');
+      final btns = payload.sublist(5, 17).map((b)=>b.toRadixString(16).padLeft(2,'0')).join(' ');
+      print("📤 DEMO TX (${payload.length} bytes):");
+      print("   full = $hex");
+      print("   btns = $btns   cnt=${payload[18]}  last=${payload[19]}  "
+          "size=${payload[2]}  dist=${payload[3]}  dir=${payload[4]}");
+      return;
+    }
+
+    // --- وضع حقيقي (بدون تعديل) ---
+    if (_txCharacteristic == null) {
+      print("⚠️ TX char is null, skip send");
+      return;
+    }
+    final bool canNoRsp = _txCharacteristic!.properties.writeWithoutResponse;
+    try {
+      await _txCharacteristic!.write(payload, withoutResponse: canNoRsp);
+    } catch (e) {
+      print("❌ TX Error: $e");
+      try {
+        await _txCharacteristic!.write(payload, withoutResponse: !canNoRsp);
+        print("✅ TX retried with ${!canNoRsp ? 'WNR' : 'WRITE'} and succeeded");
+      } catch (e2) {
+        print("❌ TX Fallback Error: $e2");
+      }
+    }
+  }
+
+  // نفس تايمراتك:
   void _startFastLoop() {
     if (_fastTxTimer != null) return;
     _fastTxTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
@@ -276,77 +476,9 @@ class BluetoothService {
     _txTimer = null;
     print("🛑 Heartbeat stopped");
   }
-
-  // ================== RX PARSE ==================
-  void _onDataReceived(List<int> data) {
-
-    // اطبع هِكس كامل للباكيت
-    final rxHex = data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
-  //  print("📥 RX Raw (${data.length} bytes): $rxHex");
-
-    // أطوال الإطارات حسب المواصفة
-    const int mainLen = 19; // الشيلد الرئيسي
-    const int addLen  = 8;  // كل شيلد إضافي
-
-    if (data.length < mainLen) {
-    //  print("⚠️ RX too short: ${data.length} bytes (need >= $mainLen)");
-      return;
-    }
-
-    try {
-      // --- الشيلد الرئيسي ---
-      final main = ShieldData.fromBytes(data, 0);
-      shieldController.updateShieldData(0, main);
-
-     /* print("🛡️ Shield[0]  "
-          "P1=${main.pressure1}  P2=${main.pressure2}  RAM=${main.ramStroke}  "
-          "face=${main.faceOrientation}  maxDn=${main.maxDownSelection}  maxUp=${main.maxUpSelection}  "
-          "moveRange=${main.moveRange}");*/
-
-      // --- احسب عدد الإضافيين والبايتات المتبقية (tail) ---
-      final int extras   = data.length - mainLen; // كل ما بعد الـ 19
-      final int nAdds    = extras ~/ addLen;      // عدد الإطارات الإضافية الكاملة
-      final int leftover = extras %  addLen;      // بايتات متبقية (CRC/حشو ...)
-
-      // --- شيلدات إضافية ---
-      for (int i = 0; i < nAdds; i++) {
-        final int offset = mainLen + i * addLen;
-        final s = ShieldData.fromBytes(data, offset);
-        shieldController.updateShieldData(1 + i, s);
-
-     /*  print("🛡️ Shield[${1 + i}]  "
-            "P1=${s.pressure1}  P2=${s.pressure2}  RAM=${s.ramStroke}  "
-            "face=${s.faceOrientation}  maxDn=${s.maxDownSelection}  maxUp=${s.maxUpSelection}");*/
-      }
-
-      // --- tail (إن وُجد) فقط للطباعة/المعرفة، نتجاهله في التحليل ---
-      if (leftover > 0) {
-        final start = mainLen + nAdds * addLen;
-        final tail  = data.sublist(start);
-        final tailHex = tail.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
-        print("ℹ️ RX tail [$leftover byte(s)]: $tailHex");
-      }
-
-      // ✅ حدّث الواجهة
-      shieldController.onUpdate?.call();
-
-    } catch (e, st) {
-      // أي خطأ في parsing ما يوقف التطبيق
-      print("❌ RX parse error: $e");
-      print(st);
-    }
-  }
-
-  // ================== DISCONNECT ==================
   Future<void> disconnect() async {
-    print("🔌 Disconnect called");
-
-    // وقّفي كل شيء أولاً
     _stopFastLoop();
     _stopHeartbeat();
-   // _stopIdleWatchdog();
-
-    // افصلي callbacks حتى ما يعيد تشغيل الإرسال بعد المسح
     shieldController.onControlChanged = null;
 
     await _subscription?.cancel();
@@ -368,4 +500,5 @@ class BluetoothService {
     _txCharacteristic = null;
 
     shieldController.clearData();
-  }}
+  }
+}*/

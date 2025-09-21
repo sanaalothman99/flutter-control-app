@@ -64,6 +64,7 @@ class ShieldVisualizerSection extends StatelessWidget {
             borderRadius: BorderRadius.circular(5),
           ),
           child: Row(
+            textDirection: controller.isReversed ? TextDirection.rtl : TextDirection.ltr,
             children: List.generate(visibleCount, (i) {
               final shieldIndex = startShield + i;
 
@@ -80,10 +81,27 @@ class ShieldVisualizerSection extends StatelessWidget {
                   : null;*/
 
 
-              final bool isCurrent     = shieldIndex == controller.currentShield;
-              final bool isHighlighted = controller.groupSize == 0 &&
-                  (shieldIndex == controller.currentShield + controller.selectionDistance);
-              final bool inGroup       = controller.selectedShields.contains(shieldIndex);
+              final bool isCurrent = shieldIndex == controller.currentShield;
+
+// ✅ إذا في مجموعة: الأزرق على كل أعضاء المجموعة
+              final bool isSelected = controller.groupSize > 0
+                  ? (controller.selectedShields.contains(shieldIndex) ||
+                  shieldIndex == controller.selectionStart)
+                  : false;
+
+// ✅ إذا ما في مجموعة: الأزرق بس على الشيلد الفردي المحدد
+              final bool isHighlighted = controller.groupSize > 0
+                  ? isSelected: (shieldIndex == controller.highlightedUnit);
+// ✅ إذا في مجموعة: كل الأعضاء + نقطة البداية
+             /* final bool inGroup = controller.groupSize > 0
+                  ? (controller.selectedShields.contains(shieldIndex) ||
+                  shieldIndex == controller.selectionStart)
+                  : controller.selectedShields.contains(shieldIndex);
+
+// ✅ highlight = نفس inGroup إذا في مجموعة، أو للـ selection الفردي
+              final bool isHighlighted = controller.groupSize > 0
+                  ? inGroup: (shieldIndex == controller.currentShield +controller.selectionDistance);*/
+
 
               final bool hasData = (data != null );/*&&
                   ((data!.pressure1 != 0) || (data.pressure2 != 0) || (data.ramStroke != 0));*/
@@ -115,7 +133,7 @@ class ShieldVisualizerSection extends StatelessWidget {
                     faceOrientation: data.faceOrientation ?? 0,
                     isCurrent:     isCurrent,
                     isHighlighted: isHighlighted,
-                    isSelected:    inGroup,
+                    isSelected:    isSelected,
                     groupSize:     controller.groupSize,
                   ),
                 ),
@@ -130,60 +148,80 @@ class ShieldVisualizerSection extends StatelessWidget {
   }
 
   int _calculateStart() {
-    int minIndex = controller.currentShield - 8;
+    // خلي currentShield بالنص (5) إذا ما في مجموعة
+    int base = controller.currentShield - 5;
+
     final highlighted = controller.currentShield + controller.selectionDistance;
-    if (highlighted < minIndex) minIndex = highlighted;
+    if (highlighted < base) base = highlighted - 5;
+
     if (controller.selectedShields.isNotEmpty) {
       final groupMin = controller.selectedShields.reduce((a, b) => a < b ? a : b);
-      if (groupMin < minIndex) minIndex = groupMin;
+      if (groupMin < base) base = groupMin - 1;
     }
-    return minIndex < 0 ? 0 : minIndex;
+
+    return base < 0 ? 0 : base;
   }
 
   int _calculateEnd() {
-    int maxIndex = controller.currentShield + 6;
+    int base = controller.currentShield + 5;
+
     final highlighted = controller.currentShield + controller.selectionDistance;
-    if (highlighted > maxIndex) maxIndex = highlighted;
+    if (highlighted > base) base = highlighted + 5;
+
     if (controller.selectedShields.isNotEmpty) {
       final groupMax = controller.selectedShields.reduce((a, b) => a > b ? a : b);
-      if (groupMax > maxIndex) maxIndex = groupMax;
+      if (groupMax > base) base = groupMax + 1;
     }
-    return maxIndex;
+
+    return base;
   }
 
 
 
   Widget _numbersRow() {
-    // مجموعة: نعرض المدى بأرقام الوحدات الحقيقية
     if (controller.groupSize > 0) {
-      // حوّل كل indices إلى unitNumbers ثم خذ min/max
-      final units = controller.selectedShields.map(_unitOfIndex).toList();
-      if (units.isEmpty) {
-        return const SizedBox.shrink();
-      }
-      units.sort();
+      final start = controller.selectionStart;
+      final step = controller.stepFor(controller.selectionDirection);
+      final last  = start + step * controller.groupSize;
+
+      final startUnit = _unitOfIndex(start);
+      final endUnit   = _unitOfIndex(last.toInt());
+
       final text = controller.isReversed
-          ? '${units.last} - ${units.first}'
-          : '${units.first} - ${units.last}';
+          ? '$endUnit - $startUnit'
+          : '$startUnit - $endUnit';
+
       return Text(
         text,
-        style: const TextStyle(color: Colors.blue, fontSize: 18, fontWeight: FontWeight.w600),
+        style: const TextStyle(
+          color: Colors.blue,
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+        ),
       );
     }
 
-    // تحديد فردي: استخدم رقم الوحدة الحقيقي
+    // تحديد فردي
     if (controller.selectionDistance != 0) {
-      final hiIdx = controller.highlightedUnit;
-      final hiUnit = _unitOfIndex(hiIdx);
+      final hiUnit = _unitOfIndex(controller.highlightedUnit);
       return Text(
         '$hiUnit',
-        style: const TextStyle(color: Colors.blue, fontSize: 18, fontWeight: FontWeight.w600),
+        style: const TextStyle(
+          color: Colors.blue,
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+        ),
       );
     }
 
-    // بدون تحديد: الشيلد الحالي برقم وحدته الحقيقي
+    // شيلد رئيسي فقط
     final curUnit = _unitOfIndex(controller.currentShield);
     return Text(
       '$curUnit',
-      style: const TextStyle(color: Colors.blue, fontSize: 18, fontWeight: FontWeight.w600),
-    );}}
+      style: const TextStyle(
+        color: Colors.blue,
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
+      ),
+    );}
+}

@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../models/shield_data.dart';
 
 enum Direction { none, left, right }
@@ -16,17 +16,16 @@ class ShieldController {
   int groupSize;
   Direction selectionDirection;
 
-  // == التخزين الأصلي ==
   final List<ShieldData> shields = [];
-
-  // == تخزين إضافي حسب unitNumber (للرسم حتى لو ما وصلت الداتا) ==
   final Map<int?, ShieldData> shieldMap = {};
 
   String? connectionShieldName;
-
+  String? lastRxHex;
+  String? lastTxHex;
   VoidCallback? onUpdate;
   VoidCallback? onControlChanged;
   Timer? _clearTimer;
+  Timer? _inactivityTimer;
 
   ShieldController({
     required this.currentShield,
@@ -36,8 +35,17 @@ class ShieldController {
     required this.onUpdate,
   });
 
-  // == قيم الشيلد الرئيسي ==
+  // ========= قيم الشيلد الرئيسي =========
   bool get isReversed => shields.isNotEmpty && shields[0].faceOrientation == 1;
+  final Duration inactivityTimeout = const Duration(seconds: 30);
+  final ValueNotifier<int> inactivitySecondsLeft = ValueNotifier(30);
+
+  int? _deviceUnitFromName() {
+    final name = connectionShieldName;
+    if (name == null || name.isEmpty) return null;
+    final m = RegExp(r'(\d{3})$').firstMatch(name);
+    return m != null ? int.tryParse(m.group(1)!) : null;
+  }
 
   int get maxGroupSize =>
       shields.isNotEmpty && shields[0].moveRange != null
@@ -45,53 +53,82 @@ class ShieldController {
           : 15;
 
   int get maxUpSelection =>
-      shields.isNotEmpty && shields[0].maxUpSelection != null ? shields[0]
-          .maxUpSelection! : 5;
+      shields.isNotEmpty && shields[0].maxUpSelection != null
+          ? shields[0].maxUpSelection!
+          : 5;
 
   int get maxDownSelection =>
-      shields.isNotEmpty && shields[0].maxDownSelection != null ? shields[0]
-          .maxDownSelection! : 5;
+      shields.isNotEmpty && shields[0].maxDownSelection != null
+          ? shields[0].maxDownSelection!
+          : 5;
 
   int get selectionStart => currentShield + selectionDistance;
 
-  List<int> get selectedShields {
-    if (groupSize == 0) return [];
-    return List.generate(groupSize, (i) {
-      return selectionDirection == Direction.right
-          ? selectionStart + i
-          : selectionStart - i;
-    });
+  // ====== مساعد لاتجاهات الرقم مع الانعكاس ======
+  int _stepFor(Direction dir) {
+    if (dir == Direction.right) return isReversed ? -1 : 1;
+    if (dir == Direction.left) return isReversed ? 1 : -1;
+    return 0;
   }
 
-  // == وظائف/فالف ==
-  final List<int> valveFunctions = List<int>.filled(6, 0); // 6 خانات 16-بت
+  int stepFor(Direction dir) => _stepFor(dir);
+
+  // ✅ selectedShields
+  List<int> get selectedShields {
+    if (groupSize == 0 && selectionDistance == 0) {
+      return [currentShield];
+    }
+    if (groupSize == 0 && selectionDistance != 0) {
+      return [highlightedUnit];
+    }
+    if (groupSize > 0) {
+      final step = _stepFor(selectionDirection);
+      // رجّع selectionStart نفسه + بقية المجموعة
+      return List.generate(groupSize + 1, (i) => selectionStart + step * i);
+    }
+    return [];
+  }
+
+  // ========= وظائف/فالف =========
+  final List<int> valveFunctions = List<int>.filled(6, 0);
   int extraFunction = 0;
 
   bool get hasActiveValves =>
       valveFunctions.any((v) => v != 0) || (extraFunction != 0);
 
-  int get selectionDistanceForMcu =>
-      isReversed ? -selectionDistance : selectionDistance;
-
-  int get selectionSizeForMcu {
-    final hasAny = (groupSize > 0) || (selectionDistance != 0);
-    if (!hasAny) return 0;
-    return (groupSize > 0) ? groupSize : 1;
-  }
-
-  int get startDirectionForMcu {
-    final hasAny = (groupSize > 0) || (selectionDistance != 0);
-    if (!hasAny) return 0;
-    final Direction physRight = isReversed ? Direction.left : Direction.right;
-    if (selectionDirection == physRight) return 1;
-    if (selectionDirection ==
-        (physRight == Direction.right ? Direction.left : Direction.right)) {
-      return 2;
+  int get selectionDistanceForMcu {
+    /* if (selectionDistance == 0 && groupSize == 0) return 0;
+    if (selectionDistance != 0 && groupSize == 0)
+      return selectionDistance.abs();
+    return (groupSize > 0) ? groupSize : 0;*/
+    if (selectionDistance == 0 && groupSize == 0) return 0;
+    if (selectionDistance != 0 && groupSize == 0) {
+      // تحديد فردي
+      return selectionDistance.abs();
+    }
+    if (groupSize > 0) {
+      // مجموعة: distance ثابت = المسافة بين currentShield و selectionStart
+      return (selectionStart - currentShield).abs();
     }
     return 0;
   }
 
-  // == حدود حسب الانعكاس ==
+  int get selectionSizeForMcu {
+    if (groupSize == 0 && selectionDistance == 0) return 0;
+    if (groupSize > 0) return groupSize;
+    return 0;
+  }
+
+  int get startDirectionForMcu {
+    final hasAny = (groupSize > 0) || (selectionDistance != 0);
+    if (!hasAny) return 0x00;
+
+    if (selectionDirection == Direction.right) return 0x0D;
+    if (selectionDirection == Direction.left) return 0x0C;
+    return 0x00;
+  }
+
+  // حدود حسب الانعكاس
   _Limits _limits() {
     final l = isReversed ? maxUpSelection : maxDownSelection;
     final r = isReversed ? maxDownSelection : maxUpSelection;
@@ -108,11 +145,19 @@ class ShieldController {
   ({int minIdx, int maxIdx}) _currentRange() {
     final start = selectionStart;
     if (groupSize <= 0) return (minIdx: start, maxIdx: start);
-    if (selectionDirection == Direction.right) {
-      return (minIdx: start, maxIdx: start + groupSize - 1);
-    } else {
-      return (minIdx: start - (groupSize - 1), maxIdx: start);
-    }
+
+    final step = _stepFor(selectionDirection);
+    final firstAdded = start + step; // أول عنصر مُضاف
+    final lastAdded = start + step * groupSize; // آخر عنصر مُضاف
+
+    int a = firstAdded < lastAdded ? firstAdded : lastAdded;
+    int b = firstAdded > lastAdded ? firstAdded : lastAdded;
+
+    // خلي النطاق يشمل نقطة البداية أيضاً
+    if (start < a) a = start;
+    if (start > b) b = start;
+
+    return (minIdx: a, maxIdx: b);
   }
 
   bool _withinAllowed({required int minIdx, required int maxIdx}) {
@@ -123,35 +168,28 @@ class ShieldController {
     return true;
   }
 
-  // يولّد Placeholders لأي وحدات مطلوبة للرسم ولم تصل بياناتها بعد
   void _ensurePlaceholdersForRange(int minUnit, int maxUnit) {
-    // لو ما عندك حدود مفعّلة، اشتغلي بالنطاق المطلوب كما هو
     int start = minUnit;
-    int end   = maxUnit;
+    int end = maxUnit;
 
-    // إن كان عندك allowedBounds جاهز، فيك تعملي قصّ ضمن الحدود:
     final b = allowedBounds;
     if (start < b.minAllowed) start = b.minAllowed;
-    if (end   > b.maxAllowed) end   = b.maxAllowed;
+    if (end > b.maxAllowed) end = b.maxAllowed;
 
     for (int u = start; u <= end; u++) {
       if (!shieldMap.containsKey(u)) {
         final placeholder = ShieldData.empty(unitNumber: u);
         shieldMap[u] = placeholder;
-
-        // ضمّني ال-placeholder بليست shields بحيث الفهرس يطابق رقم الوحدة
         if (u < 0) continue;
         if (u < shields.length) {
           shields[u] = placeholder;
         } else {
-          // كبّري اللست حتى توصلي للفهرس u ثم أضيفي
           while (shields.length < u) {
             shields.add(ShieldData.empty(unitNumber: shields.length));
           }
           shields.add(placeholder);
         }
       } else {
-        // تأكدي أن قائمة shields فيها عنصر عند الفهرس u
         if (u >= shields.length) {
           while (shields.length < u) {
             shields.add(ShieldData.empty(unitNumber: shields.length));
@@ -164,17 +202,32 @@ class ShieldController {
     }
   }
 
-  /// بيرجع بيانات شيلد جاهزة للعرض.
-  /// إذا ما كانت موجودة، بيولّد Placeholder ويرجعها (ما بيخلّي الـ UI ينهار).
+  void _selectCurrentIfNone() {
+    final hasAny = valveFunctions.any((v) => v != 0) || (extraFunction != 0);
+    if (hasAny && (groupSize == 0 && selectionDistance == 0)) {
+      selectionDistance = 0;
+      groupSize = 0;
+      selectionDirection = Direction.none;
+    }
+  }
+
   ShieldData getOrCreateUnit(int unit) {
     _ensurePlaceholdersForRange(unit, unit);
     return shieldMap[unit]!;
   }
 
-  /// بيرجع البيانات فقط إذا موجودة (بدون توليد جديد).
-  ShieldData? tryGetUnit(int unit) => shieldMap[unit];
+  ShieldData? tryGetUnit(int unit) {
+    final byKey = shieldMap[unit];
+    if (byKey != null) return byKey;
 
-  /// وصول آمن للعناصر عند الرسم بالـ index
+    // إذا المفتاح مجرد index
+    if (unit >= 0 && unit < shields.length) {
+      return shields[unit];
+    }
+
+    return null;
+  }
+
   ShieldData shieldsSafe(int index) {
     if (index < 0) return ShieldData.empty(unitNumber: 0);
     if (index >= shields.length) {
@@ -183,7 +236,6 @@ class ShieldController {
     return shields[index];
   }
 
-  // == مؤقت إلغاء التحديد ==
   void _armIdleTimer() {
     _clearTimer?.cancel();
     if (hasActiveValves) return;
@@ -199,21 +251,51 @@ class ShieldController {
 
   void _touch() => _armIdleTimer();
 
-  // == اختيار يمين ==
-  void selectRight(int ignoredTotalShields) {
+  void resetInactivityTimer(VoidCallback onTimeout) {
+    _inactivityTimer?.cancel();
+    inactivitySecondsLeft.value = inactivityTimeout.inSeconds;
+
+    _inactivityTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      inactivitySecondsLeft.value--;
+
+      if (inactivitySecondsLeft.value <= 0) {
+        t.cancel();
+        onTimeout();
+      }
+    });
+  }
+
+  void cancelInactivityTimer() {
+    _inactivityTimer?.cancel();
+    inactivitySecondsLeft.value = inactivityTimeout.inSeconds;
+  }
+
+  void userInteracted(VoidCallback onTimeout) {
+    resetInactivityTimer(onTimeout);
+  }
+
+// ===== تحكم الاختيارات =====
+  void selectRight(int ignored) {
+    userInteracted(() {
+      // إذا مرّت 30 ثانية بلا أي تفاعل، رجعي المستخدم لصفحة ConnectionScreen
+    });
     _touch();
-    final lim = _limits();
 
-    // حد خاص للتحديد الفردي: 5 فقط كحد أقصى
-    const singleCap = 5;
 
-    // تحريك مجموعة كاملة لليمين خطوة واحدة
     if (groupSize > 0) {
+      // 🔹 نقل المجموعة كلها خطوة يمين
       final range = _currentRange();
-      final newMin = range.minIdx + 1;
-      final newMax = range.maxIdx + 1;
+      final step = _stepFor(Direction.right);
+      final newMin = range.minIdx + step;
+      final newMax = range.maxIdx + step;
+
+      // ✅ مسموح خمس خطوات كحد أقصى
+      final maxShift = 5;
+      final shiftFromCenter = (selectionDistance + step).abs();
+      if (shiftFromCenter > maxShift) return;
+
       if (_withinAllowed(minIdx: newMin, maxIdx: newMax)) {
-        selectionDistance++;
+        selectionDistance += step;
         _ensurePlaceholdersForRange(newMin, newMax);
         onUpdate?.call();
         onControlChanged?.call();
@@ -221,37 +303,42 @@ class ShieldController {
       return;
     }
 
-    // تحديد فردي يمين ضمن min(حدود النظام، 5)
-    if (selectionDirection == Direction.none ||
-        selectionDirection == Direction.right) {
-      final maxRight = lim.right < singleCap ? lim.right : singleCap;
-      final desired = selectionDistance + 1;
-      final clamped = desired > maxRight ? maxRight : desired;
-      final target = currentShield + clamped;
-      if (_withinAllowed(minIdx: target, maxIdx: target)) {
-        selectionDirection = Direction.right;
-        selectionDistance = clamped;
-        _ensurePlaceholdersForRange(target, target);
-        onUpdate?.call();
-        onControlChanged?.call();
-      }
+    // 🔹 تحديد فردي لليمين
+    final step = _stepFor(Direction.right);
+    final desired = selectionDistance + step;
+    final target = currentShield + desired;
+
+    final maxShift = 5;
+    if (desired.abs() > maxShift) return;
+
+    if (_withinAllowed(minIdx: target, maxIdx: target)) {
+      selectionDirection = Direction.right;
+      selectionDistance = desired;
+      _ensurePlaceholdersForRange(target, target);
+      onUpdate?.call();
+      onControlChanged?.call();
     }
   }
 
-// == اختيار يسار ==
+// ===== التحديد يسار فردي أو نقل مجموعة يسار =====
   void selectLeft() {
+    userInteracted(() {
+      // إذا مرّت 30 ثانية بلا أي تفاعل، رجعي المستخدم لصفحة ConnectionScreen
+    });
     _touch();
-    final lim = _limits();
 
-    const singleCap = 5;
-
-    // تحريك مجموعة كاملة لليسار خطوة واحدة
     if (groupSize > 0) {
       final range = _currentRange();
-      final newMin = range.minIdx - 1;
-      final newMax = range.maxIdx - 1;
+      final step = _stepFor(Direction.left);
+      final newMin = range.minIdx + step;
+      final newMax = range.maxIdx + step;
+
+      final maxShift = 5;
+      final shiftFromCenter = (selectionDistance + step).abs();
+      if (shiftFromCenter > maxShift) return;
+
       if (_withinAllowed(minIdx: newMin, maxIdx: newMax)) {
-        selectionDistance--;
+        selectionDistance += step;
         _ensurePlaceholdersForRange(newMin, newMax);
         onUpdate?.call();
         onControlChanged?.call();
@@ -259,36 +346,52 @@ class ShieldController {
       return;
     }
 
-    // تحديد فردي يسار ضمن min(حدود النظام، 5)
-    if (selectionDirection == Direction.none ||
-        selectionDirection == Direction.left) {
-      final maxLeft = lim.left < singleCap ? lim.left : singleCap;
-      final desired = selectionDistance - 1;
-      final clamped = desired < -maxLeft ? -maxLeft : desired;
-      final target = currentShield + clamped;
-      if (_withinAllowed(minIdx: target, maxIdx: target)) {
-        selectionDirection = Direction.left;
-        selectionDistance = clamped;
-        _ensurePlaceholdersForRange(target, target);
-        onUpdate?.call();
-        onControlChanged?.call();
-      }
+    final step = _stepFor(Direction.left);
+    final desired = selectionDistance + step;
+    final target = currentShield + desired;
+
+    final maxShift = 5;
+    if (desired.abs() > maxShift) return;
+
+    if (_withinAllowed(minIdx: target, maxIdx: target)) {
+      selectionDirection = Direction.left;
+      selectionDistance = desired;
+      _ensurePlaceholdersForRange(target, target);
+      onUpdate?.call();
+      onControlChanged?.call();
     }
   }
 
-  // == مجموعة يمين ==
-  void groupRight(int ignoredTotalShields, Function(int newTotal) onNewTotal) {
+// ===== تشكيل/توسيع مجموعة يمين =====
+  void groupRight(int ignored, Function(int newTotal) onNewTotal) {
+    userInteracted(() {
+      // إذا مرّت 30 ثانية بلا أي تفاعل، رجعي المستخدم لصفحة ConnectionScreen
+    });
     _touch();
-    final lim = _limits();
-    final maxSize = 1 + lim.right;
+    final step = _stepFor(Direction.right);
     final start = selectionStart;
 
+    // 🟢 حدد الحد الأقصى (إما moveRange أو 15)
+    final maxRange = shields.isNotEmpty
+        ? ((shields[0].moveRange != null && shields[0].moveRange != 0)
+        ? shields[0].moveRange!
+        : 15)
+        : 15;
+
+    // أول مرة (تشكيل مجموعة)
     if (groupSize == 0) {
-      if (maxSize < 2) return;
-      if (!_withinAllowed(minIdx: start, maxIdx: start + 1)) return;
+      if (maxRange <= 0) return; // إذا أصلاً ما مسموح
+
       selectionDirection = Direction.right;
-      groupSize = 2;
-      _ensurePlaceholdersForRange(start, start + 1);
+      final firstNew = start + step;
+
+      if (!_withinAllowed(minIdx: start, maxIdx: firstNew)) return;
+
+      groupSize = 1;
+      _ensurePlaceholdersForRange(
+        (start < firstNew ? start : firstNew),
+        (start > firstNew ? start : firstNew),
+      );
       onNewTotal(allowedBounds.maxAllowed + 1);
       onUpdate?.call();
       onControlChanged?.call();
@@ -296,31 +399,54 @@ class ShieldController {
     }
 
     if (selectionDirection != Direction.right) return;
-    if (groupSize >= maxSize) return;
 
-    final newMax = selectionStart + groupSize;
-    if (_withinAllowed(minIdx: selectionStart, maxIdx: newMax)) {
+    // 🟢 منع التوسيع إذا وصلنا للحد
+    if (groupSize >= maxRange) return;
+
+    // توسعة
+    final nextEdge = start + step * (groupSize + 1);
+    final r = _currentRange();
+    final newMin = (nextEdge < r.minIdx) ? nextEdge : r.minIdx;
+    final newMax = (nextEdge > r.maxIdx) ? nextEdge : r.maxIdx;
+
+    if (_withinAllowed(minIdx: newMin, maxIdx: newMax)) {
       groupSize++;
-      _ensurePlaceholdersForRange(selectionStart, newMax);
+      _ensurePlaceholdersForRange(newMin, newMax);
       onNewTotal(allowedBounds.maxAllowed + 1);
       onUpdate?.call();
       onControlChanged?.call();
     }
   }
 
-  // == مجموعة يسار ==
+// ===== تشكيل/توسيع مجموعة يسار =====
   void groupLeft(Function(int newTotal, int shift) onNewTotal) {
+    userInteracted(() {
+      // إذا مرّت 30 ثانية بلا أي تفاعل، رجعي المستخدم لصفحة ConnectionScreen
+    });
     _touch();
-    final lim = _limits();
-    final maxSize = 1 + lim.left;
+    final step = _stepFor(Direction.left);
     final start = selectionStart;
 
+    // 🟢 حدد الحد الأقصى (إما moveRange أو 15)
+    final maxRange = shields.isNotEmpty
+        ? ((shields[0].moveRange != null && shields[0].moveRange != 0)
+        ? shields[0].moveRange!
+        : 15)
+        : 15;
+
     if (groupSize == 0) {
-      if (maxSize < 2) return;
-      if (!_withinAllowed(minIdx: start - 1, maxIdx: start)) return;
+      if (maxRange <= 0) return;
+
       selectionDirection = Direction.left;
-      groupSize = 2;
-      _ensurePlaceholdersForRange(start - 1, start);
+      final firstNew = start + step;
+
+      if (!_withinAllowed(minIdx: firstNew, maxIdx: start)) return;
+
+      groupSize = 1;
+      _ensurePlaceholdersForRange(
+        (firstNew < start ? firstNew : start),
+        (firstNew > start ? firstNew : start),
+      );
       onNewTotal(allowedBounds.maxAllowed + 1, 0);
       onUpdate?.call();
       onControlChanged?.call();
@@ -328,105 +454,220 @@ class ShieldController {
     }
 
     if (selectionDirection != Direction.left) return;
-    if (groupSize >= maxSize) return;
 
-    final newMin = selectionStart - groupSize;
-    if (_withinAllowed(minIdx: newMin, maxIdx: selectionStart)) {
+    if (groupSize >= maxRange) return;
+
+    final nextEdge = start + step * (groupSize + 1);
+    final r = _currentRange();
+    final newMin = (nextEdge < r.minIdx) ? nextEdge : r.minIdx;
+    final newMax = (nextEdge > r.maxIdx) ? nextEdge : r.maxIdx;
+
+    if (_withinAllowed(minIdx: newMin, maxIdx: newMax)) {
       groupSize++;
-      _ensurePlaceholdersForRange(newMin, selectionStart);
+      _ensurePlaceholdersForRange(newMin, newMax);
       onNewTotal(allowedBounds.maxAllowed + 1, 0);
       onUpdate?.call();
       onControlChanged?.call();
     }
   }
 
-  // == حذف من اليمين ==
-  void removeFromRight() {
+/*void removeFromRight() {
+    userInteracted(() {
+      // إذا مرّت 30 ثانية بلا أي تفاعل، رجعي المستخدم لصفحة ConnectionScreen
+    });
     _touch();
-    if (groupSize <= 1) return;
+    if (groupSize <= 1) return; // ما منسمح يصير صفر
 
     if (selectionDirection == Direction.right) {
+      // احذف من نهاية اليمين
       groupSize--;
     } else if (selectionDirection == Direction.left) {
-      selectionDistance += isReversed ? 1 : -1;
+      // احذف من البداية (يعني نحرك start خطوة)
+      selectionDistance += _stepFor(Direction.right);
       groupSize--;
     }
+
     onUpdate?.call();
     onControlChanged?.call();
   }
 
-  // == حذف من اليسار ==
   void removeFromLeft() {
+   userInteracted(() {
+      // إذا مرّت 30 ثانية بلا أي تفاعل، رجعي المستخدم لصفحة ConnectionScreen
+    });
     _touch();
     if (groupSize <= 1) return;
 
     if (selectionDirection == Direction.left) {
+      // احذف من نهاية اليسار
       groupSize--;
     } else if (selectionDirection == Direction.right) {
-      selectionDistance += isReversed ? -1 : 1;
+      // احذف من البداية (يعني نحرك start خطوة)
+      selectionDistance += _stepFor(Direction.right);
       groupSize--;
     }
+
     onUpdate?.call();
     onControlChanged?.call();
+  }*/
+  void removeFromRight() {
+    _touch();
+
+    // ✅ إذا المجموعة = 1 (فعلياً عنصرين: الرئيسي + 1) → خفّضها للصفر
+    if (groupSize == 1) {
+      groupSize = 0;
+      onUpdate?.call();
+      onControlChanged?.call();
+      return;
+    }
+
+    if (groupSize > 1) {
+      if (selectionDirection == Direction.right) {
+        groupSize--;
+      } else if (selectionDirection == Direction.left) {
+        selectionDistance += _stepFor(Direction.left);
+        groupSize--;
+      }
+      onUpdate?.call();
+      onControlChanged?.call();
+    }
   }
 
-  // == تحديث بيانات الشيلد (من البلوتوث) ==
+  void removeFromLeft() {
+    _touch();
+
+    if (groupSize == 1) {
+      groupSize = 0;
+      onUpdate?.call();
+      onControlChanged?.call();
+      return;
+    }
+
+    if (groupSize > 1) {
+      if (selectionDirection == Direction.left) {
+        groupSize--;
+      } else if (selectionDirection == Direction.right) {
+        selectionDistance += _stepFor(Direction.right);
+        groupSize--;
+      }
+      onUpdate?.call();
+      onControlChanged?.call();
+    }
+}
+
   void updateShieldData(int index, ShieldData newData) {
+   /* if (index < 0) return;
+    if (index < shields.length) {
+      shields[index] = newData;
+    } else if (index == shields.length) {
+      shields.add(newData);
+    }
+    // ✅ تمييز بين الرئيسي والإضافي
+    final key = (index == 0) ? 0 : newData.unitNumber ?? index;
+    shieldMap[key] = newData;
+    onUpdate?.call();*/
+   /* if (index < 0) return;
+
+    // 🟢 إذا الشيلد رئيسي وما عندو unitNumber → جيب الرقم من اسم الجهاز
+    if (index == 0 && newData.unitNumber == null) {
+      final guessed = _deviceUnitFromName();
+      if (guessed != null) {
+        newData = ShieldData(
+          unitNumber: guessed,
+          pressure1: newData.pressure1,
+          pressure2: newData.pressure2,
+          ramStroke: newData.ramStroke,
+          sensor4: newData.sensor4,
+          sensor5: newData.sensor5,
+          sensor6: newData.sensor6,
+          faceOrientation: newData.faceOrientation,
+          maxDownSelection: newData.maxDownSelection,
+          maxUpSelection: newData.maxUpSelection,
+          moveRange: newData.moveRange,
+        );
+        currentShield = guessed; // ✅ هي الأهم: خلي currentShield = unitNumber
+      }
+    }
+
+    final key = newData.unitNumber ?? index;
+    shieldMap[key] = newData;
+
+    onUpdate?.call();*/
     if (index < 0) return;
 
+    // 1) حافظ على لستة shields (لا تلمسها)
     if (index < shields.length) {
       shields[index] = newData;
     } else if (index == shields.length) {
       shields.add(newData);
     } else {
-      debugPrint("⚠️ Skipped update: Index $index too far (shields.len=${shields.length})");
-      return;
+      // إن صار قفزة غير متوقعة، كبّري اللستة بمكانات فاضية لحد index
+      while (shields.length < index) {
+        shields.add(ShieldData.empty(unitNumber: shields.length));
+      }
+      shields.add(newData);
     }
 
-    // 🔧 استخدم index كمفتاح إذا unitNumber = null
-    final key = newData.unitNumber ?? index;
-    shieldMap[key] = newData;
+    // 2) إن كان الشيلد الرئيسي وما عنده unitNumber → استخرجو من اسم الجهاز
+    int? unitNum = newData.unitNumber;
+    if (index == 0 && (unitNum == null || unitNum == 0)) {
+      final guessed = _deviceUnitFromName();
+      if (guessed != null) {
+        // بنينا نسخة جديدة بنفس القيم لكن مع unitNumber
+        newData = ShieldData(
+          unitNumber: guessed,
+          pressure1: newData.pressure1,
+          pressure2: newData.pressure2,
+          ramStroke: newData.ramStroke,
+          sensor4: newData.sensor4,
+          sensor5: newData.sensor5,
+          sensor6: newData.sensor6,
+          faceOrientation: newData.faceOrientation,
+          maxDownSelection: newData.maxDownSelection,
+          maxUpSelection: newData.maxUpSelection,
+          moveRange: newData.moveRange,
+        );
+        unitNum = guessed;
 
-    // (اختياري) طباعات تشخيص
-  /*  print("🔄 updateShieldData[$index]");
-    print("   unitNumber   = ${newData.unitNumber}");
-    print("   pressure1    = ${newData.pressure1}");
-    print("   pressure2    = ${newData.pressure2}");
-    print("   ramStroke    = ${newData.ramStroke}");
-    print("   shields.len  = ${shields.length}");
-    print("   map.len      = ${shieldMap.length}");
-    print("   map.keys     = ${shieldMap.keys.join(', ')}");*/
+        // خليه هو currentShield بوحدة حقيقية (مهم للسنترة بالرسم)
+        currentShield = guessed;
+      }
+    }
+
+    // 3) خزّن بالماب على المفتاحين:
+    //    - على index دائمًا
+    shieldMap[index] = newData;
+    //    - وعلى unitNum إذا موجود
+    if (unitNum != null) {
+      shieldMap[unitNum] = newData;
+    }
 
     onUpdate?.call();
   }
 
-  // == أدوات للـ UI ==
-  bool hasData(int unitNumber) => shieldMap.containsKey(unitNumber);
-
-  ShieldData? dataFor(int unitNumber) => shieldMap[unitNumber];
-
   int get highlightedUnit => currentShield + selectionDistance;
 
   ({int min, int max}) get groupRange {
-    if (groupSize <= 0) return (min: highlightedUnit, max: highlightedUnit);
+    if (groupSize == 0 && selectionDistance == 0) {
+      return (min: currentShield, max: currentShield);
+    }
+    if (groupSize == 0 && selectionDistance != 0) {
+      return (min: highlightedUnit, max: highlightedUnit);
+    }
     final start = selectionStart;
-    final end = selectionDirection == Direction.right
-        ? start + groupSize - 1
-        : start - groupSize + 1;
-    final mn = start < end ? start : end;
-    final mx = start > end ? start : end;
-    return (min: mn, max: mx);
+    final step = _stepFor(selectionDirection);
+    final last = start + step * groupSize;
+    final minV = start < last ? start : last;
+    final maxV = start > last ? start : last;
+    return (min: minV, max: maxV);
   }
-
-  /// لائحة الوحدات المعروضة (واجهة بتطلب 11 بشكل عام)
   List<int> getVisibleUnits({int desiredCount = 11}) {
     final b = allowedBounds;
     final minAllowed = b.minAllowed;
     final maxAllowed = b.maxAllowed;
 
-    final totalSpan = (maxAllowed >= minAllowed)
-        ? (maxAllowed - minAllowed + 1)
-        : 0;
+    final totalSpan =
+    (maxAllowed >= minAllowed) ? (maxAllowed - minAllowed + 1) : 0;
     if (totalSpan <= 0) return const [];
 
     final win = totalSpan < desiredCount ? totalSpan : desiredCount;
@@ -436,91 +677,85 @@ class ShieldController {
     if (start + win - 1 > maxAllowed) start = maxAllowed - win + 1;
 
     final base = List<int>.generate(win, (i) => start + i);
-    return isReversed ? base.reversed.toList() : base;
+
+    // يضل بهالشكل، اتجاه العرض بيتحكم فيه Row.textDirection
+    return base;
   }
 
-  // == إدارة الفالف (كما هي) ==
+  // ====== دوال الفالف ======
+  int findSlotByCode(int code) {
+    for (int i = 0; i < valveFunctions.length; i++) {
+      if (valveFunctions[i] == (code & 0xFFFF)) return i;
+    }
+    return -1;
+  }
+
+  int firstFreeSlot() {
+    for (int i = 0; i < valveFunctions.length; i++) {
+      if (valveFunctions[i] == 0) return i;
+    }
+    return -1;
+  }
   void setValveFunction(int slot, int code) {
+   userInteracted(() {
+      // إذا مرّت 30 ثانية بلا أي تفاعل، رجعي المستخدم لصفحة ConnectionScreen
+    });
     if (slot < 0 || slot >= 6) return;
     valveFunctions[slot] = code & 0xFFFF;
-    print("🔘 setValveFunction(slot=$slot, code=0x${code.toRadixString(16)})");
+    _selectCurrentIfNone();
     onUpdate?.call();
-    onControlChanged?.call();  // هذا يستدعي sendControlNow داخل BluetoothService
-    //_armIdleTimer();
+    onControlChanged?.call();
   }
 
   void clearValveSlot(int slot) {
+    userInteracted(() {
+      // إذا مرّت 30 ثانية بلا أي تفاعل، رجعي المستخدم لصفحة ConnectionScreen
+    });
     if (slot < 0 || slot >= 6) return;
     valveFunctions[slot] = 0;
-    print("🔘 clearValveSlot(slot=$slot)");
     onUpdate?.call();
     onControlChanged?.call();
-    //_armIdleTimer();
   }
 
   void clearValveFunctions() {
-    for (int i = 0; i < valveFunctions.length; i++) {
-      valveFunctions[i] = 0;
-    }
+    userInteracted(() {
+      // إذا مرّت 30 ثانية بلا أي تفاعل، رجعي المستخدم لصفحة ConnectionScreen
+    });
+    for (int i = 0; i < valveFunctions.length; i++) valveFunctions[i] = 0;
     onUpdate?.call();
     onControlChanged?.call();
-    //_armIdleTimer();
   }
 
   void setExtraFunction(int code) {
+    userInteracted(() {
+      // إذا مرّت 30 ثانية بلا أي تفاعل، رجعي المستخدم لصفحة ConnectionScreen
+    });
     extraFunction = code & 0xFF;
+    _selectCurrentIfNone();
     onUpdate?.call();
     onControlChanged?.call();
-  //  _armIdleTimer();
   }
 
-  // == بايلود التحكم 20 بايت ==
+  // ====== بايلود ======
   Uint8List buildControlPayload(int counter) {
     final p = Uint8List(20);
     p[0] = 0;
     p[1] = 0;
-    p[2] = selectionSizeForMcu & 0xFF;
+    p[2] = (selectionSizeForMcu & 0xFF);
     p[3] = (selectionDistanceForMcu & 0xFF);
-    p[4] = startDirectionForMcu & 0xFF;
-
+    p[4] = (startDirectionForMcu & 0xFF);
+    p[5] = 0xFF;
     for (int i = 0; i < 6; i++) {
       final v = (i < valveFunctions.length) ? valveFunctions[i] : 0;
-      p[5 + i * 2] = (v & 0xFF);           // LSB
-      p[6 + i * 2] = ((v >> 8) & 0xFF);    // MSB
+      p[6 + i * 2] = (v & 0xFF);
+      p[7 + i * 2] = ((v >> 8) & 0xFF);
     }
-
-    // ✅ طباعة حقل الأزرار [5..16]
-    final view = List<int>.generate(12, (k) => p[5 + k]);
-    print('buttons[5..16] = ${view.map((b)=>b.toRadixString(16).padLeft(2,"0")).join(" ")}  '
-        'activeSlots=${valveFunctions.where((v)=>v!=0).length}');
-
     p[17] = (extraFunction & 0xFF);
-    p[18] = (counter & 0xFF);
-    p[19] = 0;
+    p[18] = 0;
+    p[19] = (counter & 0xFF);
     return p;
-
   }
 
-  void generateShield(int index) {
-    if (index < 0) return;
-    // إذا الشيلد موجود مسبقاً ما نعيد إضافته
-    if (index < shields.length) return;
-
-    // نكمل إضافة عناصر فاضية حتى نوصل للـ index المطلوب
-    while (shields.length <= index) {
-      shields.add(ShieldData(
-        unitNumber: shields.length,
-        pressure1: 0,
-        pressure2: 0,
-        ramStroke: 0,
-        faceOrientation: isReversed ? 1 : 0,
-        maxUpSelection: 0,
-        maxDownSelection: 0,
-      ));
-    }
-  }
-
-  // == Reset ==
   void reset() {
     _clearTimer?.cancel();
     selectionDistance = 0;
@@ -530,41 +765,34 @@ class ShieldController {
     onControlChanged?.call();
   }
 
-  // يمسح كل الداتا والاختيارات ويحدّث الواجهة
   void clearData() {
     shields.clear();
     shieldMap.clear();
     connectionShieldName = null;
-
-    // نرجع الحالة الافتراضية للاختيار
-    selectionDistance = 0;
-    groupSize = 0;
-    selectionDirection = Direction.none;
-
-    // بلّغي الواجهة
-    onUpdate?.call();
-    onControlChanged?.call();
+    reset();
+  }
+  void dispose(){
+    _clearTimer?.cancel();
+   _inactivityTimer?.cancel();
   }
 
-  // == بيانات وهمية للاختبار ==
-  void initDummyData() {
-    // عدّلي العدد اللي بدك ياه
-    for (int i = 0; i < 20; i++) {
+  // ✅ دمي داتا للتجريب
+  void initDummyDataForTest() {
+    for (int i = 0; i < 50; i++) {
       updateShieldData(
         i,
         ShieldData(
           unitNumber: i,
-          pressure1: 30 + i,
-          pressure2: 50 + i,
-          ramStroke: 60 + i,
+          pressure1: 100 + i,
+          pressure2: 150 + i,
+          ramStroke: 300 + i,
           sensor4: 0,
           sensor5: 0,
           sensor6: 0,
-          faceOrientation: 0,
-          maxDownSelection: 2,
-          maxUpSelection: 13,
-          // مثال: 13 يمين
-          moveRange: 30,
+          faceOrientation:0, // جرّب 0 و 1
+          maxDownSelection: 15,
+          maxUpSelection: 15,
+          moveRange: 15,
         ),
       );
     }

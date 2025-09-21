@@ -47,7 +47,7 @@ class ShieldWidget extends StatelessWidget {
     if (max <= 0) return 0.0;
     final f = value / max;
     if (f.isNaN || f.isInfinite) return 0.0;
-    return f.clamp(0.0, 1.0);
+    return f.clamp(0.02, 1.0);
   }
 
   BorderSide get _border {

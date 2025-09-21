@@ -1,4 +1,4 @@
-package com.example.ec1
+package com.drd.ecremote
 
 import io.flutter.embedding.android.FlutterActivity
 

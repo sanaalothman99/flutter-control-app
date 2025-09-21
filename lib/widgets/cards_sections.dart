@@ -83,11 +83,55 @@ class _ControlInfoAndShieldSectionState
                       shields: c.shields,
                       currentShield: c.currentShield,
                       highlightedShield: c.selectionDistance != 0 &&
-                          c.groupSize == 0 ? c.selectionStart : null,
+                          c.groupSize == 0
+                          ? c.selectionStart
+                          : null,
                       selectedShields: displayedShields,
                     ),
                   ),
                 ),
+                // 🔹 صفحة رابعة لعرض آخر Telegram RX/TX
+              /* Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Card(
+                        color: Colors.grey.shade100,
+                        child: Padding(
+                          padding: const EdgeInsets.all(12.0),
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: SelectableText(
+                              "📥 Last RX:\n${c.lastRxHex ?? '--'}",
+                              style: const TextStyle(
+                                fontFamily: "monospace",
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Card(
+                        color: Colors.grey.shade100,
+                        child: Padding(
+                          padding: const EdgeInsets.all(12.0),
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: SelectableText(
+                              "📤 Last TX:\n${c.lastTxHex ?? '--'}",
+                              style: const TextStyle(
+                                fontFamily: "monospace",
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),*/
               ],
             ),
           ),
@@ -96,9 +140,10 @@ class _ControlInfoAndShieldSectionState
             padding: EdgeInsets.only(bottom: ui.indicatorPad),
             child: SmoothPageIndicator(
               controller: _pageController,
-              count: 3,
+              count: 3, // ✅ صار عندنا 4 صفحات
               effect: WormEffect(
-                dotHeight: 8, dotWidth: 8,
+                dotHeight: 8,
+                dotWidth: 8,
                 activeDotColor: Colors.blue.shade800,
                 dotColor: Colors.grey.shade400,
               ),

@@ -11,12 +11,16 @@ class ReorderableToggleGrid extends StatefulWidget {
   final ShieldController controller;
   final double topSpacing;
 
+  // 🟢 جديد: callback من ControlScreen/BottomSwitcher
+  final VoidCallback? onUserInteraction;
+
   const ReorderableToggleGrid({
     super.key,
     required this.handEnabledNotifier,
     required this.reorderModeNotifier,
     required this.controller,
     this.topSpacing = 20,
+    this.onUserInteraction, // 🟢 جديد
   });
 
   @override
@@ -42,7 +46,7 @@ class _ReorderableToggleGridState extends State<ReorderableToggleGrid> {
     {'label': '6', 'icon': 'T_Stab_Ext.png'},
     {'label': '3', 'icon': 'T_Stab_Retr.png'},
     {'label': 'x', 'icon': 'T_Flipper_Ext.png'},
-    {'label': '0', 'icon': 'T_TFlipper_3_Retr.png'},
+    {'label': '0', 'icon': 'T_Flipper_Retr.png'},
   ];
 
   @override
@@ -56,13 +60,15 @@ class _ReorderableToggleGridState extends State<ReorderableToggleGrid> {
     final saved = prefs.getStringList('buttonOrder');
     if (saved == null) return;
     setState(() {
-      buttons.sort((a, b) => saved.indexOf(a['label']!) - saved.indexOf(b['label']!));
+      buttons.sort((a, b) =>
+      saved.indexOf(a['label']!) - saved.indexOf(b['label']!));
     });
   }
 
   Future<void> _saveOrder() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('buttonOrder', buttons.map((b) => b['label']!).toList());
+    await prefs.setStringList(
+        'buttonOrder', buttons.map((b) => b['label']!).toList());
   }
 
   @override
@@ -82,26 +88,27 @@ class _ReorderableToggleGridState extends State<ReorderableToggleGrid> {
         height: gridH,
         child: ValueListenableBuilder<bool>(
           valueListenable: widget.reorderModeNotifier,
-          builder: (_, reorderMode, _) {
+          builder: (_, reorderMode, __) {
         return ValueListenableBuilder<bool>(
         valueListenable: widget.handEnabledNotifier,
-        builder: (_, handEnabled, _) {
+        builder: (_, handEnabled, __) {
         return ReorderableGridView.builder(
         key: const PageStorageKey('valve-grid'),
-        dragEnabled: reorderMode,                         // ✅ السحب فقط عند Reorder
+        dragEnabled: reorderMode,
         dragStartBehavior: DragStartBehavior.down,
         dragStartDelay: const Duration(milliseconds: 250),
-          onReorder: (oldIndex, newIndex) {
-            setState(() {
-              final it = buttons.removeAt(oldIndex);
-              buttons.insert(newIndex, it);
-            });
-            _saveOrder();
-          },
+        onReorder: (oldIndex, newIndex) {
+        setState(() {
+        final it = buttons.removeAt(oldIndex);
+        buttons.insert(newIndex, it);
+        });
+        _saveOrder();
+        },
         itemCount: buttons.length,
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        gridDelegate:
+        const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: columns,
         mainAxisSpacing: spacing,
         crossAxisSpacing: spacing,
@@ -111,32 +118,41 @@ class _ReorderableToggleGridState extends State<ReorderableToggleGrid> {
         final btn = buttons[index];
         final label = btn['label']!;
         final icon = btn['icon']!;
-        final int? slot = (index < 6)? index : null;// أول 6 فقط لإرسال أوامر متزامنة
+        final int? slot =
+        (index < 6) ? index : null; // أول 6 فقط لإرسال أوامر
 
         return ToggleButton(
-          key: ValueKey(label),
-          label: label,
-          iconName: icon,
-          handEnabled: handEnabled,
-          reorderMode: reorderMode,
-          onChanged: (isOn) {
-            if (reorderMode) return; // ✅ لا تبديل مع السحب
+        key: ValueKey(label),
+        label: label,
+        iconName: icon,
+        handEnabled: handEnabled,
+        reorderMode: reorderMode,
+        onChanged: (isOn) {
+        if (reorderMode) return;
 
-            final code = valveCodeByLabel[label] ?? 0;
-            print("🔴 Toggle '$label' -> $isOn (index=$index, slot=$slot, code=0x${code.toRadixString(16)}, hand=$handEnabled, reorder=$reorderMode)");
+        final code = valveCodeByLabel[label] ?? 0;
+        int slot = widget.controller.findSlotByCode(code);
 
-            if (slot == null) {
-              // خارج أول 6 خانات
-              // ممكن: widget.controller.setExtraFunction(code & 0xFF);
-              return;
-            }
+        if (isOn) {
+        if (slot == -1) {
+        slot = widget.controller.firstFreeSlot();
+        if (slot == -1) {
+        print("⚠️ لا توجد خانة شاغرة لتفعيل $label");
+        return;
+        }
+        }
+        widget.controller.setValveFunction(slot, code);
+        } else {
+        if (slot != -1) {
+        widget.controller.clearValveSlot(slot);
+        } else {
+        print("ℹ️ $label غير مفعّل حاليًا");
+        }
+        }
 
-            if (isOn) {
-              widget.controller.setValveFunction(slot, code);
-            } else {
-              widget.controller.clearValveSlot(slot);
-            }
-          },
+        // 🟢 صفّر المؤقت عند أي كبسة
+        widget.onUserInteraction?.call();
+        },
         );
         },
         dragWidgetBuilder: (index, child) => Material(child: child),

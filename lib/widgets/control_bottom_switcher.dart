@@ -4,15 +4,17 @@ import '../cotrollers/shield_controller.dart';
 import 'NumericPad.dart';
 
 class ControlBottomSwitcher extends StatefulWidget {
-  final ValueNotifier<bool> handEnabled;   // زر اليد
-  final ValueNotifier<bool> reorderMode;   // من المنيو
+  final ValueNotifier<bool> handEnabled;
+  final ValueNotifier<bool> reorderMode;
   final ShieldController controller;
+  final VoidCallback onUserInteraction; // 🟢 جديد
 
   const ControlBottomSwitcher({
     super.key,
     required this.handEnabled,
     required this.reorderMode,
     required this.controller,
+    required this.onUserInteraction,
   });
 
   @override
@@ -24,30 +26,38 @@ class _ControlBottomSwitcherState extends State<ControlBottomSwitcher> {
 
   @override
   Widget build(BuildContext context) {
-    final h= (MediaQuery.of(context).size.height* 0.38).clamp(280.0, 360.0);
+    final h = (MediaQuery.of(context).size.height * 0.38).clamp(280.0, 360.0);
     return Column(
       children: [
         SizedBox(
           height: h,
           child: ValueListenableBuilder<bool>(
             valueListenable: widget.handEnabled,
-            builder: (_, handOn, _) {
+            builder: (_, handOn, __) {
           return PageView(
           controller: _controller,
-          // ✅ سحب مفعّل فقط إذا اليد مطفية
           physics: handOn
           ? const NeverScrollableScrollPhysics()
               : const PageScrollPhysics(),
           children: [
           _ArrowControlsPage(
           controller: widget.controller,
-          onChanged: () => setState(() {}),
+          onChanged: () {
+          widget.onUserInteraction(); // 🟢 صفّر المؤقت
+          setState(() {});
+          },
           ),
           ReorderableToggleGrid(
-          handEnabledNotifier: widget.handEnabled,
-          reorderModeNotifier: widget.reorderMode,
-          controller: widget.controller,
-          topSpacing: 20,
+            handEnabledNotifier: widget.handEnabled,
+            reorderModeNotifier: widget.reorderMode,
+            controller: widget.controller,
+            topSpacing: 20,
+            onUserInteraction: () {
+              widget.controller.userInteracted(() {
+                // إذا مرّت 30 ثانية بلا أي تفاعل → رجوع لصفحة ConnectionScreen
+                Navigator.of(context).pushReplacementNamed('/connection');
+              });
+            },
           ),
           ],
           );
@@ -59,7 +69,7 @@ class _ControlBottomSwitcherState extends State<ControlBottomSwitcher> {
           top: false,
           minimum: const EdgeInsets.only(bottom: 6),
           child: Padding(
-            padding:  EdgeInsets.only( top: 6 ),
+            padding: const EdgeInsets.only(top: 6),
             child: SmoothPageIndicator(
               controller: _controller,
               count: 2,
@@ -82,6 +92,7 @@ class _ControlBottomSwitcherState extends State<ControlBottomSwitcher> {
     super.dispose();
   }
 }
+
 class _ArrowControlsPage extends StatelessWidget {
   final ShieldController controller;
   final VoidCallback onChanged;
@@ -91,10 +102,12 @@ class _ArrowControlsPage extends StatelessWidget {
     required this.onChanged,
   });
 
-  // زر بصورة ثابتة لكن بحجم مرن
   Widget _btn(String asset, double size, VoidCallback onTap) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: () {
+        onTap();
+        onChanged(); // 🟢 صفّر المؤقت بعد أي كبسة
+      },
       child: Container(
         width: size,
         height: size,
@@ -117,17 +130,10 @@ class _ArrowControlsPage extends StatelessWidget {
     final size = MediaQuery.of(context).size;
     final bottomInset = MediaQuery.of(context).padding.bottom;
 
-    // أبعاد مرنة:
-    // - حجم الزر بين 56 و 84
-    // - مسافة عمودية بين الصفوف
-    final double btnSize =
-    (size.width * 0.18).clamp(56.0, 84.0);      // حجم الزر
-    final double rowGap =
-    (size.height * 0.02).clamp(8.0, 16.0);      // فراغ بين الصفوف
-    final double bottomPad =
-        (bottomInset > 0 ? bottomInset : 12) + 8;   // حتى ما يختفي وراء أزرار النظام
+    final double btnSize = (size.width * 0.18).clamp(56.0, 84.0);
+    final double rowGap = (size.height * 0.02).clamp(8.0, 16.0);
+    final double bottomPad = (bottomInset > 0 ? bottomInset : 12) + 8;
 
-    // لحساب total shields باليمين
     final b = controller.allowedBounds;
     final int virtualTotal = b.maxAllowed + 1;
 
@@ -140,50 +146,42 @@ class _ArrowControlsPage extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _btn('assets/arrow_icon/left_plus.jpg',  btnSize, () {
-                controller.groupLeft((_, _) {});
-                onChanged();
+              _btn('assets/arrow_icon/left_plus.jpg', btnSize, () {
+                controller.groupLeft((_, __) {});
               }),
               SizedBox(width: 12),
               _btn('assets/arrow_icon/right_plus.jpg', btnSize, () {
                 controller.groupRight(virtualTotal, (_) {});
-                onChanged();
               }),
             ],
           ),
-
           SizedBox(height: rowGap),
 
           // Select (يسار/يمين)
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _btn('assets/arrow_icon/left.jpg',  btnSize, () {
+              _btn('assets/arrow_icon/left.jpg', btnSize, () {
                 controller.selectLeft();
-                onChanged();
               }),
               SizedBox(width: 12),
               _btn('assets/arrow_icon/right.jpg', btnSize, () {
                 controller.selectRight(virtualTotal);
-                onChanged();
               }),
             ],
           ),
-
           SizedBox(height: rowGap),
 
           // Remove (يسار/يمين)
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _btn('assets/arrow_icon/left_mius.jpg',  btnSize, () {
+              _btn('assets/arrow_icon/left_mius.jpg', btnSize, () {
                 controller.removeFromLeft();
-                onChanged();
               }),
               SizedBox(width: 12),
               _btn('assets/arrow_icon/right_mius.jpg', btnSize, () {
                 controller.removeFromRight();
-                onChanged();
               }),
             ],
           ),
