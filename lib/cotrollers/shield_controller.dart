@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import '../models/shield_data.dart';
 
@@ -721,7 +720,9 @@ class ShieldController {
     userInteracted(() {
       // إذا مرّت 30 ثانية بلا أي تفاعل، رجعي المستخدم لصفحة ConnectionScreen
     });
-    for (int i = 0; i < valveFunctions.length; i++) valveFunctions[i] = 0;
+    for (int i = 0; i < valveFunctions.length; i++) {
+      valveFunctions[i] = 0;
+    }
     onUpdate?.call();
     onControlChanged?.call();
   }

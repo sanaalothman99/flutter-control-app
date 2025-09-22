@@ -69,6 +69,7 @@ class BluetoothService {
     Future<void> tryOnce() async {
       print("🔌 Trying connect to ${device.platformName} ...");
       await _device!.connect(
+        license: License.commercial,
           autoConnect: false, timeout: const Duration(seconds: 30));
       await _device!.connectionState.firstWhere(
             (s) => s == BluetoothConnectionState.connected,
