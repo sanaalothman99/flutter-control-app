@@ -1,12 +1,16 @@
 workflows:
   ios-appstore-manual:
-    name: iOS App Store (manual signing)
+    name: iOS App Store (manual signing + TestFlight)
     max_build_duration: 60
 
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
+      vars:
+        APP_STORE_CONNECT_KEY_ID: Encrypted(...) # بتحطي قيمتك من CodeMagic
+        APP_STORE_CONNECT_ISSUER_ID: Encrypted(...) # بتحطي قيمتك من CodeMagic
+        APP_STORE_CONNECT_PRIVATE_KEY: Encrypted(...) # بتحطي قيمتك من CodeMagic
 
     cache:
       cache_paths:
@@ -23,63 +27,47 @@ workflows:
           xcodebuild -version
           pod --version
 
-      # 1) ضمان Podfile صحيح
-      - name: Ensure valid iOS Podfile
+      # 1) إصلاح Podfile إذا فيه dir
+      - name: Fix Podfile dir reference
         script: |
           set -e
-          cat > ios/Podfile <<'EOF'
-          platform :ios, '13.0'
+          if grep -q "dir" ios/Podfile; then
+            echo "⚠️ Fixing dir -> _dir_ in Podfile"
+            sed -i.bak "s/dir/_dir_/g" ios/Podfile
+          fi
 
-          use_frameworks!
-          use_modular_headers!
+      # 2) تنظيف Pods والكاش
+      - name: Clean iOS Pods
+        script: |
+          set -e
+          rm -rf ios/Podfile.lock
+          rm -rf ios/Pods
+          rm -rf ~/Library/Caches/CocoaPods
+          pod repo update
 
-          ENV['COCOAPODS_DISABLE_STATS'] = 'true'
-
-          project 'Runner', {
-            'Debug' => :debug,
-            'Profile' => :release,
-            'Release' => :release,
-          }
-
-          require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), File.expand_path('..', _dir_))
-
-          flutter_ios_podfile_setup
-
-          target 'Runner' do
-            flutter_install_all_ios_pods File.dirname(File.realpath(_FILE_))
-          end
-
-          post_install do |installer|
-            installer.pods_project.targets.each do |target|
-              flutter_additional_ios_build_settings(target)
-            end
-          end
-          EOF
-
-      # 2) Flutter prep
+      # 3) Flutter prep
       - name: Flutter prep
         script: |
           set -e
           flutter clean
           flutter pub get
 
-      # 3) Pods install
+      # 4) Pods
       - name: iOS Pods (install)
         script: |
           set -e
           cd ios
-          pod repo update
           pod install
           cd ..
 
-      # 4) تفعيل الشهادات والبروفايلات
+      # 5) تفعيل الشهادات والبروفايلات المرفوعة في Code signing
       - name: Set up manual code signing
         script: |
           set -e
           keychain add-certificates
           xcode-project use-profiles
 
-      # 5) بناء IPA
+      # 6) بناء IPA (App Store)
       - name: Build IPA (release)
         script: |
           set -e
@@ -88,28 +76,16 @@ workflows:
             --scheme=Runner \
             --archive-flags="-allowProvisioningUpdates"
 
-      # 6) فحص الـ IPA
-      - name: Debug archive contents (post)
-        script: |
-          set -e
-          IPA_PATH=$(ls build/ios/ipa/*.ipa | head -n 1)
-          echo "IPA_PATH=${IPA_PATH}"
-          TMPDIR=$(mktemp -d)
-          unzip -q "$IPA_PATH" -d "$TMPDIR"
-          APPDIR="$TMPDIR/Payload/Runner.app"
-          echo "Bundle id:"
-          /usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APPDIR/Info.plist" || true
-          test -f "$APPDIR/embedded.mobileprovision" && echo "embedded.mobileprovision FOUND" || echo "embedded.mobileprovision MISSING"
-
-      # 7) رفع التطبيق على TestFlight
+      # 7) رفع تلقائي على TestFlight
       - name: Publish to TestFlight
         script: |
           set -e
+          IPA_PATH=$(ls build/ios/ipa/*.ipa | head -n 1)
           app-store-connect publish \
-            --path build/ios/ipa/*.ipa \
-            --api-key-id $APP_STORE_CONNECT_KEY_IDENTIFIER \
-            --api-key-issuer-id $APP_STORE_CONNECT_ISSUER_ID \
-            --api-key $APP_STORE_CONNECT_PRIVATE_KEY
+            --path "$IPA_PATH" \
+            --key-id "$APP_STORE_CONNECT_KEY_ID" \
+            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+            --private-key "$APP_STORE_CONNECT_PRIVATE_KEY"
 
     artifacts:
       - build/ios/ipa/*.ipa
