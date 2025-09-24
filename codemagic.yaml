@@ -55,7 +55,7 @@ workflows:
           project 'Runner', { 'Debug' => :debug, 'Profile' => :release, 'Release' => :release }
 
           # Flutter podhelper (صيغة سليمة بدون dir):
-          require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), File.expand_path('..', __dir__))
+          require File.expand_path(File.join('..', 'Flutter', 'podhelper'), __dir__)
 
           flutter_ios_podfile_setup
 
