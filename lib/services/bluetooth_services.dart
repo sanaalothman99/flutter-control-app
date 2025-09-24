@@ -203,6 +203,9 @@ class BluetoothService {
     shieldController.selectionDirection = Direction.none;
     }*/
     // لا تغيّر selectionDistance/groupSize هون
+
+    // 🟢 كل ما ينضغط زر → اعتبره نشاط (Reset Timer 30 ثانية)
+
     sendControlNow();
     final hasAny = shieldController.valveFunctions.any((v) => v != 0) ||
         shieldController.extraFunction != 0;

@@ -1,3 +1,4 @@
+
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../models/shield_data.dart';
@@ -592,7 +593,7 @@ class ShieldController {
     shieldMap[key] = newData;
 
     onUpdate?.call();*/
-    if (index < 0) return;
+     if (index < 0) return;
 
     // 1) حافظ على لستة shields (لا تلمسها)
     if (index < shields.length) {
@@ -642,6 +643,7 @@ class ShieldController {
     }
 
     onUpdate?.call();
+
   }
 
   int get highlightedUnit => currentShield + selectionDistance;

@@ -14,21 +14,31 @@ class ShieldInfoTable extends StatelessWidget {
     required this.selectedShields,
     required this.shields,
   });
+
   // يعرض رقم الشيلد من unitNumber إن وُجد وإلا fallback على الفهرس
   String _unitLabel(int i, ShieldData? sd) {
     final unit = sd?.unitNumber ?? i;
     return '#${unit.toString().padLeft(3, '0')}';
   }
 
-// تجيب صف الداتا بأمان (null لو خارج النطاق)
+  // ✅ دالة لتنسيق القيم (65535 = Error, 65534 = Ignored)
+  String _formatValue(int? value, String unit) {
+    if (value == null) return '———';
+    if (value == 65535) return '———'; // Error
+    if (value == 65534) return 'IGN'; // Ignored
+    return '$value $unit';
+  }
+
+  // تجيب صف الداتا بأمان (null لو خارج النطاق)
   ShieldData? _dataForRow(int i) {
     return (i >= 0 && i < shields.length) ? shields[i] : null;
   }
 
-// خلية نصية جاهزة
+  // خلية نصية جاهزة
   Widget _cell(String text) => Padding(
-      padding: const EdgeInsets.all(8),
-      child: Text(text),);
+    padding: const EdgeInsets.all(8),
+    child: Text(text),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -84,22 +94,26 @@ class ShieldInfoTable extends StatelessWidget {
                 Padding(
                   padding: EdgeInsets.all(8),
                   child: Text('Shield',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      style:
+                      TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                 ),
                 Padding(
                   padding: EdgeInsets.all(8),
                   child: Text('Pusher Ram',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      style:
+                      TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                 ),
                 Padding(
                   padding: EdgeInsets.all(8),
                   child: Text('Pusher Pressure',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      style:
+                      TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                 ),
                 Padding(
                   padding: EdgeInsets.all(8),
                   child: Text('Shield Pressure',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      style:
+                      TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                 ),
               ],
             ),
@@ -116,13 +130,20 @@ class ShieldInfoTable extends StatelessWidget {
                       child: Text(
                         _unitLabel(i, sd),
                         style: TextStyle(
-                          fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                          fontWeight:
+                          isCurrent ? FontWeight.bold : FontWeight.normal,
                         ),
                       ),
                     ),
-                    cell(sd != null ? '${sd.ramStroke} mm' : '—'),
-                    cell(sd != null ? '${sd.pressure1} bar' : '—'),
-                    cell(sd != null ? '${sd.pressure2} bar' : '—'),
+                    cell(sd != null
+                        ? _formatValue(sd.ramStroke, "mm")
+                        : '———'),
+                    cell(sd != null
+                        ? _formatValue(sd.pressure1, "bar")
+                        : '———'),
+                    cell(sd != null
+                        ? _formatValue(sd.pressure2, "bar")
+                        : '———'),
                   ],
                 );
               })(),

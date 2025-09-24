@@ -23,7 +23,7 @@ workflows:
           xcodebuild -version
           pod --version
 
-      # 1) ضمان Podfile صحيح (يتجنّب أخطاء _dir_ الخ..)
+      # 1) ضمان Podfile صحيح
       - name: Ensure valid iOS Podfile
         script: |
           set -e
@@ -41,13 +41,12 @@ workflows:
             'Release' => :release,
           }
 
-          # podhelper من Flutter SDK (نستخدم مسار أب لجذر iOS)
-          require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), File.expand_path('..', __dir__))
+          require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), File.expand_path('..', _dir_))
 
           flutter_ios_podfile_setup
 
           target 'Runner' do
-            flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+            flutter_install_all_ios_pods File.dirname(File.realpath(_FILE_))
           end
 
           post_install do |installer|
@@ -64,7 +63,7 @@ workflows:
           flutter clean
           flutter pub get
 
-      # 3) Pods
+      # 3) Pods install
       - name: iOS Pods (install)
         script: |
           set -e
@@ -73,14 +72,14 @@ workflows:
           pod install
           cd ..
 
-      # 4) تفعيل الشهادات والبروفايلات المرفوعة في Code signing
+      # 4) تفعيل الشهادات والبروفايلات
       - name: Set up manual code signing
         script: |
           set -e
           keychain add-certificates
           xcode-project use-profiles
 
-      # 5) بناء IPA (App Store)
+      # 5) بناء IPA
       - name: Build IPA (release)
         script: |
           set -e
@@ -89,7 +88,7 @@ workflows:
             --scheme=Runner \
             --archive-flags="-allowProvisioningUpdates"
 
-      # 6) (اختياري) فحص محتوى الـ IPA للتشخيص
+      # 6) فحص الـ IPA
       - name: Debug archive contents (post)
         script: |
           set -e
@@ -101,6 +100,16 @@ workflows:
           echo "Bundle id:"
           /usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APPDIR/Info.plist" || true
           test -f "$APPDIR/embedded.mobileprovision" && echo "embedded.mobileprovision FOUND" || echo "embedded.mobileprovision MISSING"
+
+      # 7) رفع التطبيق على TestFlight
+      - name: Publish to TestFlight
+        script: |
+          set -e
+          app-store-connect publish \
+            --path build/ios/ipa/*.ipa \
+            --api-key-id $APP_STORE_CONNECT_KEY_IDENTIFIER \
+            --api-key-issuer-id $APP_STORE_CONNECT_ISSUER_ID \
+            --api-key $APP_STORE_CONNECT_PRIVATE_KEY
 
     artifacts:
       - build/ios/ipa/*.ipa
