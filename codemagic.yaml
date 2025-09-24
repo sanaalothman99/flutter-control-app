@@ -1,6 +1,6 @@
 workflows:
   ios-appstore-manual:
-    name: iOS App Store (manual signing)
+    name: iOS App Store (manual signing + TestFlight)
     max_build_duration: 60
 
     environment:
@@ -8,7 +8,7 @@ workflows:
       xcode: latest
       cocoapods: default
       groups:
-        - app_store_connect   # ✅ رح يقرأ المتغيرات APP_STORE_API_KEY و APP_STORE_ISSUER_ID و APP_STORE_KEY_ID من هون
+        - app_store_connect   # APP_STORE_API_KEY / APP_STORE_KEY_ID / APP_STORE_ISSUER_ID
 
     cache:
       cache_paths:
@@ -17,30 +17,44 @@ workflows:
         - ~/Library/Caches/CocoaPods
 
     scripts:
-      - name: Show versions
+      - name: Show versions & commit
         script: |
           set -e
           flutter --version
           xcodebuild -version
           pod --version
+          echo "HEAD commit:"
+          git show -s --oneline HEAD
+          echo "Current branch:"
+          git rev-parse --abbrev-ref HEAD
 
-      - name: Ensure valid iOS Podfile
+      - name: Print Podfile as received
+        script: |
+          set -e
+          echo "===== ios/Podfile (BEFORE) ====="
+          test -f ios/Podfile && sed -n '1,160p' ios/Podfile || echo "Podfile missing"
+
+      # يصلّح dir لو موجود
+      - name: Quick fix dir -> _dir_
+        script: |
+          set -e
+          if test -f ios/Podfile && grep -q "dir" ios/Podfile; then
+            echo "⚠️ Found dir in Podfile. Fixing to _dir_..."
+            sed -i.bak "s/dir/_dir_/g" ios/Podfile
+          fi
+
+      # لو لسه في مشاكل، نعيد كتابة Podfile بنسخة Flutter سليمة 100%
+      - name: Force a clean Flutter Podfile
         script: |
           set -e
           cat > ios/Podfile <<'EOF'
           platform :ios, '13.0'
-
           use_frameworks!
           use_modular_headers!
-
           ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+          project 'Runner', { 'Debug' => :debug, 'Profile' => :release, 'Release' => :release }
 
-          project 'Runner', {
-            'Debug' => :debug,
-            'Profile' => :release,
-            'Release' => :release,
-          }
-
+          # Flutter podhelper (صيغة سليمة بدون dir):
           require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), File.expand_path('..', _dir_))
 
           flutter_ios_podfile_setup
@@ -56,6 +70,18 @@ workflows:
           end
           EOF
 
+      - name: Show Podfile after fix
+        script: |
+          set -e
+          echo "===== ios/Podfile (AFTER) ====="
+          sed -n '1,160p' ios/Podfile
+
+      - name: Clean iOS Pods & repos
+        script: |
+          set -e
+          rm -rf ios/Podfile.lock ios/Pods ~/Library/Caches/CocoaPods
+          pod repo update
+
       - name: Flutter prep
         script: |
           set -e
@@ -66,7 +92,6 @@ workflows:
         script: |
           set -e
           cd ios
-          pod repo update
           pod install
           cd ..
 
@@ -84,13 +109,18 @@ workflows:
             --scheme=Runner \
             --archive-flags="-allowProvisioningUpdates"
 
+      - name: Publish to TestFlight
+        script: |
+          set -e
+          IPA_PATH=$(ls build/ios/ipa/*.ipa | head -n 1)
+          echo "Uploading: $IPA_PATH"
+          app-store-connect publish \
+            --path "$IPA_PATH" \
+            --api-key "$APP_STORE_API_KEY" \
+            --key-id "$APP_STORE_KEY_ID" \
+            --issuer-id "$APP_STORE_ISSUER_ID"
+
     artifacts:
       - build/ios/ipa/*.ipa
       - build/ios/archive/*.xcarchive
 
-    publishing:
-      app_store_connect:
-        api_key: $APP_STORE_API_KEY
-        key_id: $APP_STORE_KEY_ID
-        issuer_id: $APP_STORE_ISSUER_ID
-        submit_to_testflight: true
