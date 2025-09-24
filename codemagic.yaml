@@ -35,7 +35,7 @@ workflows:
           test -f ios/Podfile && sed -n '1,160p' ios/Podfile || echo "Podfile missing"
 
       # يصلّح dir لو موجود
-      - name: Quick fix dir -> _dir_
+      - name: Quick fix _dir_ -> __dir__
         script: |
           set -e
           if test -f ios/Podfile && grep -q "dir" ios/Podfile; then
