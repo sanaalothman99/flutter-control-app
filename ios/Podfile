@@ -1,4 +1,3 @@
-platform :ios, '13.0'
 
 use_frameworks!
 use_modular_headers!
@@ -11,7 +10,20 @@ project 'Runner', {
   'Release' => :release,
 }
 
-require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), File.expand_path('..', __dir__))
+# استخرج مسار Flutter SDK من ios/Flutter/Generated.xcconfig
+def flutter_root
+  generated_xcode_build_settings_path = File.expand_path(File.join(_dir_, 'Flutter', 'Generated.xcconfig'))
+  unless File.exist?(generated_xcode_build_settings_path)
+    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
+  end
+  File.foreach(generated_xcode_build_settings_path) do |line|
+    match = line.match(/FLUTTER_ROOT=(.*)/)
+    return match[1].strip if match
+  end
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try running flutter pub get."
+end
+
+require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
 
 flutter_ios_podfile_setup
 
