@@ -1,14 +1,12 @@
 workflows:
   ios-appstore-manual:
-    name: iOS App Store (manual signing + TestFlight)
+    name: iOS App Store (manual signing)
     max_build_duration: 60
 
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
-      groups:
-        - app_store_connect   # APP_STORE_API_KEY / APP_STORE_KEY_ID / APP_STORE_ISSUER_ID
 
     cache:
       cache_paths:
@@ -17,90 +15,38 @@ workflows:
         - ~/Library/Caches/CocoaPods
 
     scripts:
-      - name: Show versions & commit
+      # 0) معلومات للتشخيص
+      - name: Show versions
         script: |
           set -e
           flutter --version
           xcodebuild -version
           pod --version
-          echo "HEAD commit:"
-          git show -s --oneline HEAD
-          echo "Current branch:"
-          git rev-parse --abbrev-ref HEAD
 
-      - name: Print Podfile as received
-        script: |
-          set -e
-          echo "===== ios/Podfile (BEFORE) ====="
-          test -f ios/Podfile && sed -n '1,160p' ios/Podfile || echo "Podfile missing"
-
-      # يصلّح dir لو موجود
-      - name: Quick fix _dir_ -> __dir__
-        script: |
-          set -e
-          if test -f ios/Podfile && grep -q "dir" ios/Podfile; then
-            echo "⚠️ Found dir in Podfile. Fixing to _dir_..."
-            sed -i.bak "s/dir/_dir_/g" ios/Podfile
-          fi
-
-      # لو لسه في مشاكل، نعيد كتابة Podfile بنسخة Flutter سليمة 100%
-      - name: Force a clean Flutter Podfile
-        script: |
-          set -e
-          cat > ios/Podfile <<'EOF'
-          platform :ios, '13.0'
-          use_frameworks!
-          use_modular_headers!
-          ENV['COCOAPODS_DISABLE_STATS'] = 'true'
-          project 'Runner', { 'Debug' => :debug, 'Profile' => :release, 'Release' => :release }
-
-          # Flutter podhelper (صيغة سليمة بدون dir):
-          require File.expand_path(File.join('..', 'Flutter', 'podhelper'), __dir__)
-
-          flutter_ios_podfile_setup
-
-          target 'Runner' do
-            flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-          end
-
-          post_install do |installer|
-            installer.pods_project.targets.each do |target|
-              flutter_additional_ios_build_settings(target)
-            end
-          end
-          EOF
-
-      - name: Show Podfile after fix
-        script: |
-          set -e
-          echo "===== ios/Podfile (AFTER) ====="
-          sed -n '1,160p' ios/Podfile
-
-      - name: Clean iOS Pods & repos
-        script: |
-          set -e
-          rm -rf ios/Podfile.lock ios/Pods ~/Library/Caches/CocoaPods
-          pod repo update
-
+      # 1) Flutter prep
       - name: Flutter prep
         script: |
           set -e
           flutter clean
           flutter pub get
 
+      # 2) Pods
       - name: iOS Pods (install)
         script: |
           set -e
           cd ios
+          pod repo update
           pod install
           cd ..
 
+      # 3) تفعيل الشهادات والبروفايلات
       - name: Set up manual code signing
         script: |
           set -e
           keychain add-certificates
           xcode-project use-profiles
 
+      # 4) بناء IPA (App Store)
       - name: Build IPA (release)
         script: |
           set -e
@@ -109,16 +55,18 @@ workflows:
             --scheme=Runner \
             --archive-flags="-allowProvisioningUpdates"
 
-      - name: Publish to TestFlight
+      # 5) (اختياري) فحص محتوى الـ IPA
+      - name: Debug archive contents (post)
         script: |
           set -e
           IPA_PATH=$(ls build/ios/ipa/*.ipa | head -n 1)
-          echo "Uploading: $IPA_PATH"
-          app-store-connect publish \
-            --path "$IPA_PATH" \
-            --api-key "$APP_STORE_API_KEY" \
-            --key-id "$APP_STORE_KEY_ID" \
-            --issuer-id "$APP_STORE_ISSUER_ID"
+          echo "IPA_PATH=${IPA_PATH}"
+          TMPDIR=$(mktemp -d)
+          unzip -q "$IPA_PATH" -d "$TMPDIR"
+          APPDIR="$TMPDIR/Payload/Runner.app"
+          echo "Bundle id:"
+          /usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APPDIR/Info.plist" || true
+          test -f "$APPDIR/embedded.mobileprovision" && echo "embedded.mobileprovision FOUND" || echo "embedded.mobileprovision MISSING"
 
     artifacts:
       - build/ios/ipa/*.ipa
