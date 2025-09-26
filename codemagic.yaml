@@ -41,7 +41,8 @@ workflows:
           xcode-project build-ipa \
             --workspace=ios/Runner.xcworkspace \
             --scheme=Runner \
-            --archive-flags="-allowProvisioningUpdates"
+            --archive-flags="-allowProvisioningUpdates" \
+            --export-method=app-store
 
     artifacts:
       - build/ios/ipa/*.ipa
