@@ -1,22 +1,35 @@
 workflows:
   ios-appstore:
-    name: iOS App Store (automatic signing)
-    max_build_duration: 60
+    name: iOS App Store Build
     environment:
-      flutter: stable
-      xcode: latest
-      cocoapods: default
-    cache:
-      cache_paths:
-        - $FLUTTER_ROOT/.pub-cache
-        - ios/Pods
-        - ~/Library/Caches/CocoaPods
+      vars:
+        APP_STORE_CONNECT_PRIVATE_KEY: Encrypted(...)
+        APP_STORE_CONNECT_KEY_ID: Encrypted(...)
+        APP_STORE_CONNECT_ISSUER_ID: Encrypted(...)
+
     scripts:
-      - name: Get Flutter packages
-        script: flutter pub get
+      # 1) Fix bundle identifier
+      - name: Fix Bundle Identifier
+        script: |
+          echo "🔧 Fixing bundle identifiers..."
+          find ios -type f -name "project.pbxproj" -print0 | while IFS= read -r -d '' file; do
+            sed -i.bak 's/org.cocoapods.flutter-blue-plus-darwin/com.drd.ecremote/g' "$file"
+          done
+          find ios -type f -name "Info.plist" -print0 | while IFS= read -r -d '' file; do
+            sed -i.bak 's/org.cocoapods.flutter-blue-plus-darwin/com.drd.ecremote/g' "$file"
+          done
+          echo "✅ Bundle identifiers fixed."
+
+      # 2) Get Flutter dependencies
+      - name: Flutter pub get
+        script: |
+          flutter pub get
+
+      # 3) Build IPA
       - name: Build IPA
         script: |
           flutter build ipa --release --no-tree-shake-icons
+
     artifacts:
       - build/ios/ipa/*.ipa
       - build/ios/archive/*.xcarchive
