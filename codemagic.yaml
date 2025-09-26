@@ -1,49 +1,22 @@
 workflows:
   ios-appstore:
-    name: iOS App Store (Automatic signing)
+    name: iOS App Store (automatic signing)
     max_build_duration: 60
-
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
-
     cache:
       cache_paths:
-        - ~/.pub-cache
+        - $FLUTTER_ROOT/.pub-cache
         - ios/Pods
         - ~/Library/Caches/CocoaPods
-
     scripts:
-      # 1) Show versions
-      - name: Show versions
-        script: |
-          flutter --version
-          xcodebuild -version
-          pod --version
-
-      # 2) Flutter clean & get
-      - name: Flutter prep
-        script: |
-          flutter clean
-          flutter pub get
-
-      # 3) Install iOS Pods
-      - name: iOS Pods (install)
-        script: |
-          cd ios
-          pod install
-          cd ..
-
-      # 4) Build IPA (App Store)
+      - name: Get Flutter packages
+        script: flutter pub get
       - name: Build IPA
         script: |
-          xcode-project build-ipa \
-            --workspace=ios/Runner.xcworkspace \
-            --scheme=Runner \
-            --archive-flags="-allowProvisioningUpdates" \
-            --export-method=app-store
-
+          flutter build ipa --release --no-tree-shake-icons
     artifacts:
       - build/ios/ipa/*.ipa
       - build/ios/archive/*.xcarchive
