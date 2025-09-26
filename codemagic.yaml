@@ -3,33 +3,19 @@ workflows:
     name: iOS App Store Build
     environment:
       vars:
-        APP_STORE_CONNECT_PRIVATE_KEY: Encrypted(...)
-        APP_STORE_CONNECT_KEY_ID: Encrypted(...)
-        APP_STORE_CONNECT_ISSUER_ID: Encrypted(...)
-
+        XCODE_WORKSPACE: "ios/Runner.xcworkspace"
+        XCODE_SCHEME: "Runner"
     scripts:
-      # 1) Fix bundle identifier
-      - name: Fix Bundle Identifier
+      - name: Install dependencies
         script: |
-          echo "🔧 Fixing bundle identifiers..."
-          find ios -type f -name "project.pbxproj" -print0 | while IFS= read -r -d '' file; do
-            sed -i.bak 's/org.cocoapods.flutter-blue-plus-darwin/com.drd.ecremote/g' "$file"
-          done
-          find ios -type f -name "Info.plist" -print0 | while IFS= read -r -d '' file; do
-            sed -i.bak 's/org.cocoapods.flutter-blue-plus-darwin/com.drd.ecremote/g' "$file"
-          done
-          echo "✅ Bundle identifiers fixed."
-
-      # 2) Get Flutter dependencies
-      - name: Flutter pub get
-        script: |
+          flutter clean
           flutter pub get
-
-      # 3) Build IPA
+          cd ios
+          pod install
+          cd ..
       - name: Build IPA
         script: |
           flutter build ipa --release --no-tree-shake-icons
-
     artifacts:
       - build/ios/ipa/*.ipa
       - build/ios/archive/*.xcarchive
