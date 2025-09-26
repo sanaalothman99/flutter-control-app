@@ -1,6 +1,6 @@
 workflows:
-  ios-appstore-manual:
-    name: iOS App Store (manual signing)
+  ios-appstore:
+    name: iOS App Store (Automatic signing)
     max_build_duration: 60
 
     environment:
@@ -15,60 +15,41 @@ workflows:
         - ~/Library/Caches/CocoaPods
 
     scripts:
-      # 0) معلومات للتشخيص
+      # 1) Show versions
       - name: Show versions
         script: |
-          set -e
           flutter --version
           xcodebuild -version
           pod --version
 
-      # 1) Flutter prep
+      # 2) Flutter clean & get
       - name: Flutter prep
         script: |
-          set -e
           flutter clean
           flutter pub get
 
-      # 2) Pods
+      # 3) Install iOS Pods
       - name: iOS Pods (install)
         script: |
-          set -e
           cd ios
-          pod repo update
           pod install
           cd ..
 
-      # 3) تفعيل الشهادات والبروفايلات
-      - name: Set up manual code signing
+      # 4) Build IPA (App Store)
+      - name: Build IPA
         script: |
-          set -e
-          keychain add-certificates
-          xcode-project use-profiles
-
-      # 4) بناء IPA (App Store)
-      - name: Build IPA (release)
-        script: |
-          set -e
           xcode-project build-ipa \
             --workspace=ios/Runner.xcworkspace \
             --scheme=Runner \
             --archive-flags="-allowProvisioningUpdates"
 
-      # 5) (اختياري) فحص محتوى الـ IPA
-      - name: Debug archive contents (post)
-        script: |
-          set -e
-          IPA_PATH=$(ls build/ios/ipa/*.ipa | head -n 1)
-          echo "IPA_PATH=${IPA_PATH}"
-          TMPDIR=$(mktemp -d)
-          unzip -q "$IPA_PATH" -d "$TMPDIR"
-          APPDIR="$TMPDIR/Payload/Runner.app"
-          echo "Bundle id:"
-          /usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APPDIR/Info.plist" || true
-          test -f "$APPDIR/embedded.mobileprovision" && echo "embedded.mobileprovision FOUND" || echo "embedded.mobileprovision MISSING"
-
     artifacts:
       - build/ios/ipa/*.ipa
       - build/ios/archive/*.xcarchive
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_ID
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+
 
