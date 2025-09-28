@@ -2,22 +2,31 @@ workflows:
   ios-workflow:
     name: iOS Workflow
     integrations:
-      app_store_connect: EC-Remote Key   # نفس الاسم الموجود بالصورة
+      app_store_connect: EC-Remote Key   # اسم الـ API Key يلي ضفتيه
 
     environment:
       vars:
         XCODE_WORKSPACE: "ios/Runner.xcworkspace"
         XCODE_SCHEME: "Runner"
-        APP_STORE_APP_ID: 6751927803  # ID تطبيقك من App Store Connect
+        APP_STORE_APP_ID: 6751927803     # ID تبع التطبيق من App Store Connect
 
     scripts:
+      - name: Get certificates and profiles
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files \
+            "$APP_STORE_APP_ID" \
+            --type IOS_APP_STORE \
+            --create
+          keychain add-certificates
+
       - name: Build ipa for distribution
         script: |
-          flutter build ipa --release 
+          flutter build ipa --release
 
     publishing:
       app_store_connect:
-        auth: integration   # يعني رح يستخدم المفتاح المضاف
+        auth: integration
         submit_to_testflight: true
         submit_to_app_store: false
 
