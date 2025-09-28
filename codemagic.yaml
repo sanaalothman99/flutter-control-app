@@ -13,8 +13,7 @@ workflows:
     scripts:
       - name: Build ipa for distribution
         script: |
-          flutter build ipa --release \
-            --export-options-plist=/Users/builder/export_options.plist
+          flutter build ipa --release 
 
     publishing:
       app_store_connect:
