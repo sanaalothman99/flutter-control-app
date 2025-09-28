@@ -1,19 +1,26 @@
 workflows:
-  ios-appstore:
-    name: iOS App Store
-    max_build_duration: 60
+  ios-workflow:
+    name: iOS Workflow
+    integrations:
+      app_store_connect: EC-Remote Key   # نفس الاسم الموجود بالصورة
+
     environment:
-      flutter: stable
-      xcode: latest
-      cocoapods: default
+      vars:
+        XCODE_WORKSPACE: "ios/Runner.xcworkspace"
+        XCODE_SCHEME: "Runner"
+        APP_STORE_APP_ID: 6751927803  # ID تطبيقك من App Store Connect
+
     scripts:
-      - name: Get Flutter packages
-        script: flutter pub get
-      - name: Build IPA
-        script: flutter build ipa --release --no-tree-shake-icons
-    artifacts:
-      - build/ios/ipa/*.ipa
-      - build/ios/archive/*.xcarchive
+      - name: Build ipa for distribution
+        script: |
+          flutter build ipa --release \
+            --export-options-plist=/Users/builder/export_options.plist
+
+    publishing:
+      app_store_connect:
+        auth: integration   # يعني رح يستخدم المفتاح المضاف
+        submit_to_testflight: true
+        submit_to_app_store: false
 
 
 
