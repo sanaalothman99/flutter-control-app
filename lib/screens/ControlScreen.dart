@@ -1,3 +1,4 @@
+import 'package:drd_app/screens/connection_screen.dart';
 import 'package:flutter/material.dart';
 import '../cotrollers/shield_controller.dart';
 import '../services/bluetooth_services.dart';
@@ -38,7 +39,9 @@ class _ControlScreenState extends State<ControlScreen> {
     controller.resetInactivityTimer(() {
       bluetoothService.disconnect();
       if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/connection');
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const ConnectionScreen()),
+        );
       }
     });
   }
