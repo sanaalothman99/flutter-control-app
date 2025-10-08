@@ -43,11 +43,12 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-        <key> NSBluetoothAlwaysUsageDescription</key>
-        <string>This app uses Blutooth to connect and control EC-Remote  Controllers.</string>
-        <key>VSLocationWhenInUseUsageDescription</key>
-        <string>This app needs locaton accessto detect and connect to nearby EC-Remote Controllers via Bluetooth.</string>
-        <key>NSBluetoothPeripheralUsageDescription</key>
-        <string>This app requires Bluetooth access to communicate with Controllers</string>        
+	<!-- ✅ Bluetooth & Location permissions -->
+    	<key>NSBluetoothAlwaysUsageDescription</key>
+    	<string>This app uses Bluetooth to connect and control EC-Remote Controllers.</string>
+    	<key>NSBluetoothPeripheralUsageDescription</key>
+    	<string>This app requires Bluetooth access to communicate with controllers.</string>
+    	<key>NSLocationWhenInUseUsageDescription</key>
+    	<string>This app needs location access to detect and connect to nearby EC-Remote Controllers via Bluetooth.</string>
 </dict>
 </plist>

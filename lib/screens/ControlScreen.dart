@@ -1,12 +1,12 @@
+import 'package:drd_app/cotrollers/shield_controller.dart';
 import 'package:drd_app/screens/connection_screen.dart';
+import 'package:drd_app/widgets/cards_sections.dart';
+import 'package:drd_app/widgets/control_bottom_switcher.dart';
 import 'package:flutter/material.dart';
-import '../cotrollers/shield_controller.dart';
+
 import '../services/bluetooth_services.dart';
 
-// أقسام الشاشة (الكارد + الفيجوال + الجدول):
-import '../../widgets/cards_sections.dart';
-// السويتشر السفلي (الأسهم + شبكة الأزرار):
-import '../../widgets/control_bottom_switcher.dart';
+
 
 class ControlScreen extends StatefulWidget {
   final ShieldController controller;
@@ -176,18 +176,20 @@ class _ControlScreenState extends State<ControlScreen> {
     children: [
     ValueListenableBuilder<bool>(
     valueListenable: _isGridEnabled,
-    builder: (_, enabled, __) => GestureDetector(
+    builder: (_, enabled, __) => AbsorbPointer(/*GestureDetector(
     onTapDown: (_) {
     _isGridEnabled.value = true;
     controller.resetInactivityTimer(() {
     bluetoothService.disconnect();
     if (mounted) {
-    Navigator.of(context).pushReplacementNamed('/connection');
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const ConnectionScreen()),
+      );
     }
     });
     },
     onTapUp: (_) => _isGridEnabled.value = false,
-    onTapCancel: () => _isGridEnabled.value = false,
+    onTapCancel: () => _isGridEnabled.value = false,*/
     child: Container(
     decoration: BoxDecoration(
     color: Colors.white,
