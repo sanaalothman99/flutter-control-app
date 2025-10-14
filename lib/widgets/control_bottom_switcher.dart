@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import '../cotrollers/shield_controller.dart';
+import '../screens/connection_screen.dart';
 import 'NumericPad.dart';
 
 class ControlBottomSwitcher extends StatefulWidget {
@@ -36,9 +37,7 @@ class _ControlBottomSwitcherState extends State<ControlBottomSwitcher> {
             builder: (_, handOn, __) {
           return PageView(
           controller: _controller,
-          physics: handOn
-          ? const NeverScrollableScrollPhysics()
-              : const PageScrollPhysics(),
+          physics: const PageScrollPhysics(),
           children: [
           _ArrowControlsPage(
           controller: widget.controller,
@@ -55,7 +54,9 @@ class _ControlBottomSwitcherState extends State<ControlBottomSwitcher> {
             onUserInteraction: () {
               widget.controller.userInteracted(() {
                 // إذا مرّت 30 ثانية بلا أي تفاعل → رجوع لصفحة ConnectionScreen
-                Navigator.of(context).pushReplacementNamed('/connection');
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (_) => const ConnectionScreen()),
+                );
               });
             },
           ),

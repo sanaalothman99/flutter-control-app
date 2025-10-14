@@ -22,9 +22,10 @@ class ControlScreen extends StatefulWidget {
   State<ControlScreen> createState() => _ControlScreenState();
 }
 
-class _ControlScreenState extends State<ControlScreen> {
+// 🟢 أضفنا WidgetsBindingObserver
+class _ControlScreenState extends State<ControlScreen> with WidgetsBindingObserver {
   // زر اليد: يفعّل/يعطّل الأزرار فقط
-  final ValueNotifier<bool> _isGridEnabled = ValueNotifier(false);
+  final ValueNotifier<bool> _isGridEnabled = ValueNotifier(true);
 
   // وضع إعادة الترتيب: من المينيو فقط
   final ValueNotifier<bool> isReorderMode = ValueNotifier(false);
@@ -35,6 +36,9 @@ class _ControlScreenState extends State<ControlScreen> {
   @override
   void initState() {
     super.initState();
+    // 🟢 نراقب حالة التطبيق
+    WidgetsBinding.instance.addObserver(this);
+    controller.contextRef= context;
     // 🟢 شغّل مؤقت الخمول أول ما تفتح الشاشة
     controller.resetInactivityTimer(() {
       bluetoothService.disconnect();
@@ -46,8 +50,28 @@ class _ControlScreenState extends State<ControlScreen> {
     });
   }
 
+  // 🟢 نراقب حالة التطبيق (عند الإغلاق أو standby)
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      //  إذا التطبيق دخل Standby أو بالخلفية → افصل الاتصال
+      bluetoothService.disconnect();
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const ConnectionScreen()),
+        );
+      }
+    }
+  }
+
   @override
   void dispose() {
+    // 🟢 أوقف مراقبة الحالة
+    WidgetsBinding.instance.removeObserver(this);
+
     _isGridEnabled.dispose();
     isReorderMode.dispose();
     controller.cancelInactivityTimer(); // 🟢 أوقف مؤقت الخمول
@@ -102,81 +126,81 @@ class _ControlScreenState extends State<ControlScreen> {
 
   Widget _buildAppBarTitle(ShieldController controller) {
     return Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-    // القائمة + الاسم
-    Expanded(
-    child: Row(
-    children: [
-        PopupMenuButton<String>(
-        icon: const Icon(Icons.menu, color: Colors.black87),
-    onSelected: (v) {
-    if (v == 'back') {
-    Navigator.of(context).maybePop();
-    } else if (v == 'reorder') {
-    isReorderMode.value = !isReorderMode.value;
-    }
-    },
-    itemBuilder: (_) => [
-    const PopupMenuItem(
-    value: 'back',
-    child: Row(
-    children: [Icon(Icons.arrow_back), SizedBox(width: 8), Text('Back')],
-    ),
-    ),
-    PopupMenuItem(
-    value: 'reorder',
-    child: Row(
-    children: [
-    const Icon(Icons.grid_view),
-    const SizedBox(width: 8),
-    Text(isReorderMode.value ? 'Done reordering' : 'Reorder icons'),
-    ],
-    ),
-    ),
-    ],
-    ),
-    const SizedBox(width: 12),
-    Flexible(
-    child: Text(
-    controller.connectionShieldName ??
-    controller.currentShield.toString().padLeft(3, '0'),
-    overflow: TextOverflow.ellipsis,
-    style: const TextStyle(
-    fontWeight: FontWeight.bold,
-    fontSize: 18,
-    color: Colors.green,
-    ),
-    ),
-    ),
-    ],
-    ),
-    ),
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        // القائمة + الاسم
+        Expanded(
+          child: Row(
+            children: [
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.menu, color: Colors.black87),
+                onSelected: (v) {
+                  if (v == 'back') {
+                    Navigator.of(context).maybePop();
+                  } else if (v == 'reorder') {
+                    isReorderMode.value = !isReorderMode.value;
+                  }
+                },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(
+                    value: 'back',
+                    child: Row(
+                      children: [Icon(Icons.arrow_back), SizedBox(width: 8), Text('Back')],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'reorder',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.grid_view),
+                        const SizedBox(width: 8),
+                        Text(isReorderMode.value ? 'Done reordering' : 'Reorder icons'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 12),
+              Flexible(
+                child: Text(
+                  controller.connectionShieldName ??
+                      controller.currentShield.toString().padLeft(3, '0'),
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                    color: Colors.green,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
 
-    // ✅ العداد (مع مسافة صغيرة)
-    Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 8),
-    child: ValueListenableBuilder<int>(
-    valueListenable: controller.inactivitySecondsLeft,
-    builder: (_, seconds, __) {
-    return Text(
-    "⏳ $seconds ",
-    style: const TextStyle(
-    fontSize: 14,
-    fontWeight: FontWeight.w600,
-    color: Colors.red,
-    ),
-    );
-    },
-    ),
-    ),
+        // ✅ العداد (مع مسافة صغيرة)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: ValueListenableBuilder<int>(
+            valueListenable: controller.inactivitySecondsLeft,
+            builder: (_, seconds, _) {
+          return Text(
+          "⏳ $seconds ",
+          style: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: Colors.red,
+          ),
+          );
+          },
+          ),
+        ),
 
-    // زر اليد + اللوجو
-    Row(
-    children: [
-    ValueListenableBuilder<bool>(
+        // زر اليد + اللوجو
+        Row(
+          children: [
+            /* ValueListenableBuilder<bool>(
     valueListenable: _isGridEnabled,
-    builder: (_, enabled, __) => AbsorbPointer(/*GestureDetector(
+    builder: (, enabled, _) => AbsorbPointer(/*GestureDetector(
     onTapDown: (_) {
     _isGridEnabled.value = true;
     controller.resetInactivityTimer(() {
@@ -208,14 +232,14 @@ class _ControlScreenState extends State<ControlScreen> {
     ),
     ),
     ),
-    ),
-    const SizedBox(width: 12),
-    Image.asset(
-    'assets/LogoDRD.png',
-    height: 40, // 🔹 خفّضنا حجم اللوجو ليتفادى overflow
-    ),
-    ],
-    ),
-    ],
+    ),*/
+            const SizedBox(width: 12),
+            Image.asset(
+              'assets/LogoDRD.png',
+              height: 56, // 🔹 خفّضنا حجم اللوجو ليتفادى overflow
+            ),
+          ],
+        ),
+      ],
     );
   }}

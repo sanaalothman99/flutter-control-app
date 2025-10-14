@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../cotrollers/shield_controller.dart';
 import '../models/shield_data.dart';
+import '../screens/connection_screen.dart';
 
 String _hex(List<int> bytes) =>
     bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
@@ -187,7 +190,7 @@ class BluetoothService {
     // اربطي تغيّر التحكم وابدئي heartbeat
     shieldController.onControlChanged = _onControlChanged;
     _startHeartbeat();
-    await sendControlNow();
+    await sendControlThrottled();
   }
 
   void _onControlChanged() {
@@ -206,7 +209,7 @@ class BluetoothService {
 
     // 🟢 كل ما ينضغط زر → اعتبره نشاط (Reset Timer 30 ثانية)
 
-    sendControlNow();
+    sendControlThrottled();
     final hasAny = shieldController.valveFunctions.any((v) => v != 0) ||
         shieldController.extraFunction != 0;
     if (hasAny) {
@@ -217,6 +220,17 @@ class BluetoothService {
       _startHeartbeat();
     }
   }
+// ===== Throttled Sender (to keep buttons responsive but safe) =====
+  bool _isSending = false;
+  static const Duration safeInterval = Duration(milliseconds: 400);
+
+  Future<void> sendControlThrottled() async {
+    if (_isSending) return; // تجاهل أي ضغط أثناء الإرسال
+    _isSending = true;
+    await sendControlNow();
+    await Future.delayed(safeInterval);
+    _isSending = false;
+}
 
   // ================== SEND ==================
   Future<void> sendControlNow() async {
@@ -268,7 +282,7 @@ class BluetoothService {
   void _startFastLoop() {
     if (_fastTxTimer != null) return;
     _fastTxTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      sendControlNow();
+      sendControlThrottled();
     });
     print("⚡ Fast loop started (200ms)");
   }
@@ -282,7 +296,7 @@ class BluetoothService {
   void _startHeartbeat() {
     _txTimer?.cancel();
     _txTimer =
-        Timer.periodic(const Duration(seconds: 1), (_) => sendControlNow());
+        Timer.periodic(const Duration(seconds: 1), (_) => sendControlThrottled());
     print("💓 Heartbeat started (20s)");
   }
 
@@ -351,6 +365,22 @@ class BluetoothService {
     _txCharacteristic = null;
 
     shieldController.clearData();
+
+    // 🟢 الجديد:
+    // عند انقطاع الاتصال، نرجع المستخدم إلى شاشة الاتصال فوراً
+    Future.delayed(Duration(milliseconds: 300), () {
+      if (shieldController.onUpdate != null) {
+        shieldController.onUpdate = null; // منع إعادة رسم بعد التنظيف
+      }
+      // رجّع المستخدم إذا السياق متاح
+      final ctx = shieldController.contextRef;
+      if (ctx != null && ctx.mounted) {
+        Navigator.of(ctx).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const ConnectionScreen()),
+              (route) => false,
+        );
+      }
+    });
   }
 
   }

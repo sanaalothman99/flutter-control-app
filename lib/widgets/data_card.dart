@@ -11,104 +11,74 @@ class DataCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
 
-    // اسم العرض: أولويته لاسم الجهاز المتصل
     final String title = controller.connectionShieldName ??
         'DRD_EC${controller.currentShield.toString().padLeft(3, '0')}';
 
-    // الشيلد الرئيسي (الإطار 0 من MCU)
     final ShieldData? main =
     controller.shields.isNotEmpty ? controller.shields[0] : null;
 
-    // addAd: جرّب عرض الشيلدين بعد current إن وُجدا
-    final int cur = controller.currentShield;
-
-// نجيب الشيلدات المجاورة بالاعتماد على الـ tryGetUnit
-    List<String> neighbors = [];
-
-    final next1 = controller.tryGetUnit(cur + 1);
-    if (next1 != null) {
-      neighbors.add('#${(cur + 1).toString().padLeft(3, '0')}');
-    }
-
-    final next2 = controller.tryGetUnit(cur + 2);
-    if (next2 != null) {
-      neighbors.add('#${(cur + 2).toString().padLeft(3, '0')}');
-    }
-    final String addAd = neighbors.join(', ');
-
-    // الضغطين والطول من الشيلد الرئيسي (أقرب للي عم يوصلك)
     final int p1 = main?.pressure1 ?? 0;
     final int p2 = main?.pressure2 ?? 0;
-
-    // “Length” حسب صورك كان يعرض قيمة الرام (من الرئيسي)
     final int lengthMm = main?.ramStroke ?? 0;
 
     return Card(
-      elevation: 5,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
-        padding: EdgeInsets.all(screenWidth * 0.05),
+        padding: EdgeInsets.symmetric(
+          vertical: screenWidth * 0.04,
+          horizontal: screenWidth * 0.06,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            _title(title, screenWidth),
-            const Divider(height: 20, thickness: 1.2),
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    children: [
-                      _row(Icons.add_box_outlined, 'addAd', addAd, screenWidth),
-                      SizedBox(height: screenWidth * 0.03),
-                      _row(Icons.straighten, 'Length', '$lengthMm mm', screenWidth),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: Column(
-                    children: [
-                      _row(Icons.speed, 'Pressure 1', '$p1 Bar', screenWidth),
-                      SizedBox(height: screenWidth * 0.03),
-                      _row(Icons.speed, 'Pressure 2', '$p2 Bar', screenWidth),
-                    ],
-                  ),
-                ),
-              ],
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: screenWidth * 0.045,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
             ),
+            const Divider(height: 18, thickness: 1.1),
+            _infoRow(Icons.straighten, 'Length', '$lengthMm mm', screenWidth),
+            SizedBox(height: screenWidth * 0.02),
+            _infoRow(Icons.speed, 'Pressure 1', '$p1 Bar', screenWidth),
+            SizedBox(height: screenWidth * 0.02),
+            _infoRow(Icons.speed, 'Pressure 2', '$p2 Bar', screenWidth),
           ],
         ),
       ),
     );
   }
 
-  Widget _row(IconData icon, String label, String value, double w) {
+  Widget _infoRow(IconData icon, String label, String value, double w) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(icon, size: w * 0.045, color: Colors.grey[800]),
+        Icon(icon, size: w * 0.045, color: Colors.grey[700]),
         SizedBox(width: w * 0.02),
         Text(
           '$label: ',
-          style: TextStyle(fontSize: w * 0.028, fontWeight: FontWeight.w600),
+          style: TextStyle(
+            fontSize: w * 0.032,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
         ),
-        Expanded(
+        Flexible(
           child: Text(
-            value.isEmpty ? '-' : value,
-            style: TextStyle(fontSize: w * 0.028, fontWeight: FontWeight.w500),
+            value,
+            style: TextStyle(
+              fontSize: w * 0.031,
+              fontWeight: FontWeight.w500,
+              color: Colors.black,
+            ),
             overflow: TextOverflow.ellipsis,
           ),
         ),
       ],
-    );
-  }
-
-  Widget _title(String label, double w) {
-    return Text(
-      label,
-      style: TextStyle(
-        fontSize: w * 0.052,
-        fontWeight: FontWeight.bold,
-        color: Colors.black,
-      ),
     );
   }}

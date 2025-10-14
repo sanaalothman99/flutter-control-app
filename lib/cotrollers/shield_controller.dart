@@ -1,5 +1,5 @@
-
 import 'dart:async';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import '../models/shield_data.dart';
 
@@ -7,10 +7,12 @@ enum Direction { none, left, right }
 
 class _Limits {
   final int left, right;
+
   const _Limits(this.left, this.right);
 }
 
 class ShieldController {
+  BuildContext? contextRef;
   int currentShield;
   int selectionDistance;
   int groupSize;
@@ -47,22 +49,23 @@ class ShieldController {
     return m != null ? int.tryParse(m.group(1)!) : null;
   }
 
-  int get maxGroupSize =>
-      shields.isNotEmpty && shields[0].moveRange != null
-          ? shields[0].moveRange!
-          : 15;
+  int get maxGroupSize => shields.isNotEmpty && shields[0].moveRange != null
+      ? shields[0].moveRange!
+      : 15;
 
   int get maxUpSelection =>
       shields.isNotEmpty && shields[0].maxUpSelection != null
-          ? shields[0].maxUpSelection!
-          : 5;
+      ? shields[0].maxUpSelection!
+      : 5;
 
   int get maxDownSelection =>
       shields.isNotEmpty && shields[0].maxDownSelection != null
-          ? shields[0].maxDownSelection!
-          : 5;
+      ? shields[0].maxDownSelection!
+      : 5;
 
-  int get selectionStart => currentShield + selectionDistance;
+  //int get selectionStart => currentShield + selectionDistance;
+  int get selectionStart =>
+  isReversed? currentShield - selectionDistance : currentShield + selectionDistance;
 
   // ====== مساعد لاتجاهات الرقم مع الانعكاس ======
   int _stepFor(Direction dir) {
@@ -274,13 +277,12 @@ class ShieldController {
     resetInactivityTimer(onTimeout);
   }
 
-// ===== تحكم الاختيارات =====
+  // ===== تحكم الاختيارات =====
   void selectRight(int ignored) {
     userInteracted(() {
       // إذا مرّت 30 ثانية بلا أي تفاعل، رجعي المستخدم لصفحة ConnectionScreen
     });
     _touch();
-
 
     if (groupSize > 0) {
       // 🔹 نقل المجموعة كلها خطوة يمين
@@ -320,7 +322,7 @@ class ShieldController {
     }
   }
 
-// ===== التحديد يسار فردي أو نقل مجموعة يسار =====
+  // ===== التحديد يسار فردي أو نقل مجموعة يسار =====
   void selectLeft() {
     userInteracted(() {
       // إذا مرّت 30 ثانية بلا أي تفاعل، رجعي المستخدم لصفحة ConnectionScreen
@@ -362,7 +364,7 @@ class ShieldController {
     }
   }
 
-// ===== تشكيل/توسيع مجموعة يمين =====
+  // ===== تشكيل/توسيع مجموعة يمين =====
   void groupRight(int ignored, Function(int newTotal) onNewTotal) {
     userInteracted(() {
       // إذا مرّت 30 ثانية بلا أي تفاعل، رجعي المستخدم لصفحة ConnectionScreen
@@ -374,8 +376,8 @@ class ShieldController {
     // 🟢 حدد الحد الأقصى (إما moveRange أو 15)
     final maxRange = shields.isNotEmpty
         ? ((shields[0].moveRange != null && shields[0].moveRange != 0)
-        ? shields[0].moveRange!
-        : 15)
+              ? shields[0].moveRange!
+              : 15)
         : 15;
 
     // أول مرة (تشكيل مجموعة)
@@ -418,7 +420,7 @@ class ShieldController {
     }
   }
 
-// ===== تشكيل/توسيع مجموعة يسار =====
+  // ===== تشكيل/توسيع مجموعة يسار =====
   void groupLeft(Function(int newTotal, int shift) onNewTotal) {
     userInteracted(() {
       // إذا مرّت 30 ثانية بلا أي تفاعل، رجعي المستخدم لصفحة ConnectionScreen
@@ -430,8 +432,8 @@ class ShieldController {
     // 🟢 حدد الحد الأقصى (إما moveRange أو 15)
     final maxRange = shields.isNotEmpty
         ? ((shields[0].moveRange != null && shields[0].moveRange != 0)
-        ? shields[0].moveRange!
-        : 15)
+              ? shields[0].moveRange!
+              : 15)
         : 15;
 
     if (groupSize == 0) {
@@ -471,7 +473,7 @@ class ShieldController {
     }
   }
 
-/*void removeFromRight() {
+  /*void removeFromRight() {
     userInteracted(() {
       // إذا مرّت 30 ثانية بلا أي تفاعل، رجعي المستخدم لصفحة ConnectionScreen
     });
@@ -553,47 +555,10 @@ class ShieldController {
       onUpdate?.call();
       onControlChanged?.call();
     }
-}
+  }
 
   void updateShieldData(int index, ShieldData newData) {
    /* if (index < 0) return;
-    if (index < shields.length) {
-      shields[index] = newData;
-    } else if (index == shields.length) {
-      shields.add(newData);
-    }
-    // ✅ تمييز بين الرئيسي والإضافي
-    final key = (index == 0) ? 0 : newData.unitNumber ?? index;
-    shieldMap[key] = newData;
-    onUpdate?.call();*/
-   /* if (index < 0) return;
-
-    // 🟢 إذا الشيلد رئيسي وما عندو unitNumber → جيب الرقم من اسم الجهاز
-    if (index == 0 && newData.unitNumber == null) {
-      final guessed = _deviceUnitFromName();
-      if (guessed != null) {
-        newData = ShieldData(
-          unitNumber: guessed,
-          pressure1: newData.pressure1,
-          pressure2: newData.pressure2,
-          ramStroke: newData.ramStroke,
-          sensor4: newData.sensor4,
-          sensor5: newData.sensor5,
-          sensor6: newData.sensor6,
-          faceOrientation: newData.faceOrientation,
-          maxDownSelection: newData.maxDownSelection,
-          maxUpSelection: newData.maxUpSelection,
-          moveRange: newData.moveRange,
-        );
-        currentShield = guessed; // ✅ هي الأهم: خلي currentShield = unitNumber
-      }
-    }
-
-    final key = newData.unitNumber ?? index;
-    shieldMap[key] = newData;
-
-    onUpdate?.call();*/
-     if (index < 0) return;
 
     // 1) حافظ على لستة shields (لا تلمسها)
     if (index < shields.length) {
@@ -642,8 +607,61 @@ class ShieldController {
       shieldMap[unitNum] = newData;
     }
 
-    onUpdate?.call();
+    onUpdate?.call();*/
+    if (index < 0) return;
 
+    // 🟢 إذا نفس الشيلد وصل بنفس القيم → لا تعيدي التحديث لتجنب flicker
+    final existing = shieldMap[newData.unitNumber ?? index];
+    if (existing != null &&
+        existing.pressure1 == newData.pressure1 &&
+        existing.pressure2 == newData.pressure2 &&
+        existing.ramStroke == newData.ramStroke) {
+      return; // لا داعي للتحديث لأنه نفس الداتا بالضبط
+    }
+
+    // 1) حافظي على لستة shields (لا تلمسيها)
+    if (index < shields.length) {
+      shields[index] = newData;
+    } else if (index == shields.length) {
+      shields.add(newData);
+    } else {
+      // إن صار قفزة غير متوقعة، كبّري اللستة بمكانات فاضية لحد index
+      while (shields.length < index) {
+        shields.add(ShieldData.empty(unitNumber: shields.length));
+      }
+      shields.add(newData);
+    }
+
+    // 2) إن كان الشيلد الرئيسي وما عنده unitNumber → استخرجي من اسم الجهاز
+    int? unitNum = newData.unitNumber;
+    if (index == 0 && (unitNum == null || unitNum == 0)) {
+      final guessed = _deviceUnitFromName();
+      if (guessed != null) {
+        newData = ShieldData(
+          unitNumber: guessed,
+          pressure1: newData.pressure1,
+          pressure2: newData.pressure2,
+          ramStroke: newData.ramStroke,
+          sensor4: newData.sensor4,
+          sensor5: newData.sensor5,
+          sensor6: newData.sensor6,
+          faceOrientation: newData.faceOrientation,
+          maxDownSelection: newData.maxDownSelection,
+          maxUpSelection: newData.maxUpSelection,
+          moveRange: newData.moveRange,
+        );
+        unitNum = guessed;
+        currentShield = guessed;
+      }
+    }
+
+    // 3) خزّني بالماب على المفتاحين
+    shieldMap[index] = newData;
+    if (unitNum != null) {
+      shieldMap[unitNum] = newData;
+    }
+
+    onUpdate?.call();
   }
 
   int get highlightedUnit => currentShield + selectionDistance;
@@ -662,13 +680,15 @@ class ShieldController {
     final maxV = start > last ? start : last;
     return (min: minV, max: maxV);
   }
+
   List<int> getVisibleUnits({int desiredCount = 11}) {
     final b = allowedBounds;
     final minAllowed = b.minAllowed;
     final maxAllowed = b.maxAllowed;
 
-    final totalSpan =
-    (maxAllowed >= minAllowed) ? (maxAllowed - minAllowed + 1) : 0;
+    final totalSpan = (maxAllowed >= minAllowed)
+        ? (maxAllowed - minAllowed + 1)
+        : 0;
     if (totalSpan <= 0) return const [];
 
     final win = totalSpan < desiredCount ? totalSpan : desiredCount;
@@ -697,8 +717,9 @@ class ShieldController {
     }
     return -1;
   }
+
   void setValveFunction(int slot, int code) {
-   userInteracted(() {
+    userInteracted(() {
       // إذا مرّت 30 ثانية بلا أي تفاعل، رجعي المستخدم لصفحة ConnectionScreen
     });
     if (slot < 0 || slot >= 6) return;
@@ -774,9 +795,10 @@ class ShieldController {
     connectionShieldName = null;
     reset();
   }
-  void dispose(){
+
+  void dispose() {
     _clearTimer?.cancel();
-   _inactivityTimer?.cancel();
+    _inactivityTimer?.cancel();
   }
 
   // ✅ دمي داتا للتجريب
@@ -792,7 +814,8 @@ class ShieldController {
           sensor4: 0,
           sensor5: 0,
           sensor6: 0,
-          faceOrientation:0, // جرّب 0 و 1
+          faceOrientation: 0,
+          // جرّب 0 و 1
           maxDownSelection: 15,
           maxUpSelection: 15,
           moveRange: 15,
