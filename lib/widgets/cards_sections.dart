@@ -28,7 +28,7 @@ class _ControlInfoAndShieldSectionState
       widget.controller.selectionDistance != 0 ||
           widget.controller.groupSize > 0;
 
-  List<int> get displayedShields {
+ List<int> get displayedShields {
     final list = <int>[widget.controller.currentShield];
 
     // إذا لم يكن هناك مجموعة، نعرض الـ highlighted فقط
@@ -40,6 +40,20 @@ class _ControlInfoAndShieldSectionState
     list.addAll(widget.controller.selectedShields);
     return list.toSet().toList()..sort();
   }
+ /* List<int> get displayedShields {
+    final c = widget.controller;
+
+    if (c.groupSize > 0) {
+      // 🟢 مجموعة: اعرض الشيلدات المحددة فعلاً
+      return c.selectedShields.toSet().toList()..sort();
+    } else if (c.selectionDistance != 0) {
+      // 🟢 تحديد فردي: اعرض الشيلد المظلل الحقيقي فقط
+      return [c.highlightedUnit];
+    } else {
+      // 🟢 لا تحديد: اعرض الشيلد الرئيسي فقط
+      return [c.currentShield];
+    }
+  }*/
 
   @override
   void initState() {

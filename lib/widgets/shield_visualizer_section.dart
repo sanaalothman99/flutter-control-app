@@ -35,6 +35,7 @@ class ShieldVisualizerSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+
     const double shieldHeight = 90;
     const double spacing = 3;
 

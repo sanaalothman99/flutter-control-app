@@ -10,8 +10,6 @@ class ReorderableToggleGrid extends StatefulWidget {
   final ValueNotifier<bool> reorderModeNotifier;   // وضع الترتيب
   final ShieldController controller;
   final double topSpacing;
-
-  // 🟢 جديد: callback من ControlScreen/BottomSwitcher
   final VoidCallback? onUserInteraction;
 
   const ReorderableToggleGrid({
@@ -20,7 +18,7 @@ class ReorderableToggleGrid extends StatefulWidget {
     required this.reorderModeNotifier,
     required this.controller,
     this.topSpacing = 20,
-    this.onUserInteraction, // 🟢 جديد
+    this.onUserInteraction,
   });
 
   @override
@@ -29,9 +27,18 @@ class ReorderableToggleGrid extends StatefulWidget {
 
 class _ReorderableToggleGridState extends State<ReorderableToggleGrid> {
   static const Map<String, int> valveCodeByLabel = {
-    '0': 0x0012, '1': 0x0001, '2': 0x000C, '3': 0x0033, '4': 0x0002,
-    '5': 0x000B, '6': 0x0032, '7': 0x002D, '8': 0x001D, '9': 0x0031,
-    'i': 0x002E, 'x': 0x0011,
+    '0': 0x0012,
+    '1': 0x0001,
+    '2': 0x000C,
+    '3': 0x0033,
+    '4': 0x0002,
+    '5': 0x000B,
+    '6': 0x0032,
+    '7': 0x002D,
+    '8': 0x001D,
+    '9': 0x0031,
+    'i': 0x002E,
+    'x': 0x0011,
   };
 
   List<Map<String, String>> buttons = [
@@ -68,7 +75,9 @@ class _ReorderableToggleGridState extends State<ReorderableToggleGrid> {
   Future<void> _saveOrder() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(
-        'buttonOrder', buttons.map((b) => b['label']!).toList());
+      'buttonOrder',
+      buttons.map((b) => b['label']!).toList(),
+    );
   }
 
   @override
@@ -88,19 +97,21 @@ class _ReorderableToggleGridState extends State<ReorderableToggleGrid> {
         height: gridH,
         child: ValueListenableBuilder<bool>(
           valueListenable: widget.reorderModeNotifier,
-          builder: (_, reorderMode, __) {
+          builder: (_, reorderMode, _) {
         return ValueListenableBuilder<bool>(
         valueListenable: widget.handEnabledNotifier,
-        builder: (_, handEnabled, __) {
+        builder: (_, handEnabled, _) {
+        // 🟢 وضع الترتيب: نستخدم ReorderableGridView
+        if (reorderMode) {
         return ReorderableGridView.builder(
-        key: const PageStorageKey('valve-grid'),
-        dragEnabled: reorderMode,
+        key: const PageStorageKey('valve-grid-reorder'),
+        dragEnabled: true,
         dragStartBehavior: DragStartBehavior.down,
         dragStartDelay: const Duration(milliseconds: 250),
         onReorder: (oldIndex, newIndex) {
         setState(() {
-        final it = buttons.removeAt(oldIndex);
-        buttons.insert(newIndex, it);
+        final item = buttons.removeAt(oldIndex);
+        buttons.insert(newIndex, item);
         });
         _saveOrder();
         },
@@ -116,21 +127,49 @@ class _ReorderableToggleGridState extends State<ReorderableToggleGrid> {
         ),
         itemBuilder: (context, index) {
         final btn = buttons[index];
+        return ToggleButton(
+        key: ValueKey(btn['label']),
+        label: btn['label']!,
+        iconName: btn['icon']!,
+        handEnabled: false,
+        reorderMode: true,
+        controller: widget.controller,
+        onChanged: (_) {},
+        );
+        },
+        dragWidgetBuilder: (index, child) => Material(child: child),
+        );
+        }
+
+        // 🟢 الوضع العادي: GridView (multi-touch + تحديث الجدول)
+        return GridView.builder(
+        key: const PageStorageKey('valve-grid-normal'),
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate:
+        const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: columns,
+        mainAxisSpacing: spacing,
+        crossAxisSpacing: spacing,
+        childAspectRatio: aspect,
+        ),
+        itemCount: buttons.length,
+        itemBuilder: (context, index) {
+        final btn = buttons[index];
         final label = btn['label']!;
         final icon = btn['icon']!;
-        final int? slot =
-        (index < 6) ? index : null; // أول 6 فقط لإرسال أوامر
+        final code = valveCodeByLabel[label] ?? 0;
 
         return ToggleButton(
         key: ValueKey(label),
         label: label,
         iconName: icon,
         handEnabled: handEnabled,
-        reorderMode: reorderMode,
+        reorderMode: false,
+        controller: widget.controller,
         onChanged: (isOn) {
         if (reorderMode) return;
 
-        final code = valveCodeByLabel[label] ?? 0;
         int slot = widget.controller.findSlotByCode(code);
 
         if (isOn) {
@@ -145,17 +184,39 @@ class _ReorderableToggleGridState extends State<ReorderableToggleGrid> {
         } else {
         if (slot != -1) {
         widget.controller.clearValveSlot(slot);
-        } else {
-        print("ℹ️ $label غير مفعّل حاليًا");
         }
         }
 
-        // 🟢 صفّر المؤقت عند أي كبسة
+        // ✅ تحديث الجدول والرسم مثل السابق
+        final selected = widget.controller.selectedShields;
+        if (selected.isNotEmpty) {
+        for (final shieldNumber in selected) {
+        final data = widget.controller.tryGetUnit(shieldNumber);
+        if (data != null) {
+        widget.controller.updateShieldData(shieldNumber, data);
+        }
+        }
+        } else {
+        final mainData = widget.controller.shields.isNotEmpty
+        ? widget.controller.shields.first
+            : null;
+        if (mainData != null) {
+        widget.controller.updateShieldData(
+        widget.controller.currentShield,
+        mainData,
+        );
+        }
+        }
+
+        widget.controller.onUpdate?.call();
+        widget.controller.onControlChanged?.call();
+        widget.controller.userInteracted(() {});
+        widget.controller.pauseIdleTimer();
+
         widget.onUserInteraction?.call();
         },
         );
         },
-        dragWidgetBuilder: (index, child) => Material(child: child),
         );
         },
         );
@@ -163,5 +224,5 @@ class _ReorderableToggleGridState extends State<ReorderableToggleGrid> {
         ),
       ),
     );
-  }}
-
+  }
+}

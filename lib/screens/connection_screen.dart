@@ -238,7 +238,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   @override
   void initState() {
     super.initState();
-
     _controller = ShieldController(
       currentShield: 5,
       selectionDistance: 0,
@@ -394,47 +393,33 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             ),
             const SizedBox(height: 12),
 
-            // 🧪 زر وضع الديمو لتجربة الـ Dummy Data
-            Card(
-              color: Colors.green.shade50,
-              elevation: 3,
-              margin: const EdgeInsets.symmetric(vertical: 8),
-              child: ListTile(
-                leading: const Icon(Icons.bug_report, color: Colors.green),
-                title: const Text("Enter Demo Mode (Dummy Data)"),
-                subtitle: const Text(
-                    "⚠️ هذا للـ Testing فقط — احذفه عند الاتصال بمتحكم حقيقي"),
-                onTap: () {
-                  _controller.initDummyDataForTest();
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ControlScreen(
-                        controller: _controller,
-                        bluetoothService: custom.BluetoothService(
-                          shieldController: _controller,
-                          deviceName: "DEMO",
-                          onDataReceived: (_) {},
-                          demoMode: true, // اختياري
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-
+            // ✅ تشغيل الـ Mock Mode تلقائيًا عند عدم وجود أجهزة
             if (devices.isEmpty)
               Card(
-                elevation: 2,
+                color: Colors.green.shade50,
                 child: ListTile(
-                  leading: const Icon(Icons.info_outline),
-                  title: const Text('No devices found'),
-                  subtitle: Text(FILTER_DRD_ONLY
-                      ? 'Filtering is ON ($DRD_PREFIX…). Try turning it off in code or move closer.'
-                      : 'Make sure Bluetooth is on and devices are advertising.'),
-                  trailing:
-                  TextButton(onPressed: _refresh, child: const Text('Rescan')),
+                  leading: const Icon(Icons.bug_report, color: Colors.green),
+                  title: const Text("Demo Mode Active"),
+                  subtitle: const Text(
+                      "Mock data loaded automatically for testing."),
+                  onTap: () {
+                    _controller.initDummyDataForTest();
+                    final service = custom.BluetoothService(
+                      shieldController: _controller,
+                      deviceName: "DEMO",
+                      onDataReceived: (_) {},
+                      demoMode: true,
+                    );
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ControlScreen(
+                          controller: _controller,
+                          bluetoothService: service,
+                        ),
+                      ),
+                    );
+                  },
                 ),
               )
             else
@@ -459,4 +444,5 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         ),
       ),
     );
-  }}*/
+  }
+}*/

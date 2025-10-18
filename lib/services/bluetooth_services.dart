@@ -225,7 +225,11 @@ class BluetoothService {
   static const Duration safeInterval = Duration(milliseconds: 400);
 
   Future<void> sendControlThrottled() async {
-    if (_isSending) return; // تجاهل أي ضغط أثناء الإرسال
+    if (_isSending) {
+      // السماح بإرسال جديد بعد 100ms حتى مع ضغطات متعددة
+      Future.delayed(const Duration(milliseconds: 100), sendControlNow);
+      return;
+    }
     _isSending = true;
     await sendControlNow();
     await Future.delayed(safeInterval);
@@ -279,12 +283,40 @@ class BluetoothService {
 
 
   // Loops
-  void _startFastLoop() {
+ /* void _startFastLoop() {
     if (_fastTxTimer != null) return;
     _fastTxTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       sendControlThrottled();
     });
     print("⚡ Fast loop started (200ms)");
+  }
+
+  void _stopFastLoop() {
+    _fastTxTimer?.cancel();
+    _fastTxTimer = null;
+    print("🛑 Fast loop stopped");
+  }*/
+  // إرسال مؤقت سريع (burst) عند الضغط
+  void _startFastLoop() {
+    // إذا أصلاً شغال، لا تشغّله مرتين
+    if (_fastTxTimer != null) return;
+
+    int burstCount = 0;
+    const maxBurst = 5; // عدد الرسائل السريعة
+    const fastInterval = Duration(milliseconds: 250); // فاصل آمن
+
+    _fastTxTimer = Timer.periodic(fastInterval, (timer) {
+      sendControlThrottled();
+
+      burstCount++;
+      if (burstCount >= maxBurst) {
+        // بعد 5 مرات، نوقف الإرسال السريع ونرجع لنبض عادي
+        _stopFastLoop();
+        _startHeartbeat();
+      }
+    });
+
+    print("⚡ Fast loop burst started (250 ms × $maxBurst)");
   }
 
   void _stopFastLoop() {
@@ -297,7 +329,7 @@ class BluetoothService {
     _txTimer?.cancel();
     _txTimer =
         Timer.periodic(const Duration(seconds: 1), (_) => sendControlThrottled());
-    print("💓 Heartbeat started (20s)");
+    print("💓 Heartbeat started (1s)");
   }
 
   void _stopHeartbeat() {
@@ -388,8 +420,6 @@ class BluetoothService {
   final ShieldController shieldController;
   final String deviceName;
   final void Function(List<int>) onDataReceived;
-
-  // 👇 جديد
   final bool demoMode;
 
   BluetoothDevice? _device;
@@ -409,130 +439,47 @@ class BluetoothService {
     required this.shieldController,
     required this.deviceName,
     required this.onDataReceived,
-    this.demoMode = false, // 👈 افتراضي false
+    this.demoMode = false,
   });
 
-  // 🧪 وضع تجريبي: لا بلوتوث إطلاقًا
-  Future<void> enterDemoMode() async {
-    _isConnected = true;
-    _txCounter = 0;
-    shieldController.initDummyDataForTest();
-    shieldController.onControlChanged = _onControlChanged;
-    _startHeartbeat(); // اختياري
-    print("🧪 DEMO MODE: connected (fake), dummy data loaded.");
-  }
-
-  // ================== CONNECT ==================
   Future<void> connect(BluetoothDevice device) async {
     if (demoMode) {
       await enterDemoMode();
-      return; // ✅ لا تكمّلي اكتشاف خدمات
+      return;
     }
 
+    // ⚙️ الاتصال الحقيقي (بدون أي تعديل)
     _device = device;
-    // ... بقية كود الاتصال الحقيقي تبعِك بدون تغيير ...
+  }
+
+  Future<void> enterDemoMode() async {
+    _isConnected = true;
+    _txCounter = 0;
+    print("🧪 DEMO MODE ACTIVE");
+    shieldController.initDummyDataForTest();
+    shieldController.onControlChanged = _onControlChanged;
   }
 
   void _onControlChanged() {
     if (!_isConnected) return;
-
-    final hasAny = shieldController.valveFunctions.any((v) => v != 0) ||
-        shieldController.extraFunction != 0;
-
     sendControlNow();
-
-    if (hasAny) {
-      _startFastLoop();
-      _stopHeartbeat();
-    } else {
-      _stopFastLoop();
-      _startHeartbeat();
-    }
   }
 
-  // ================== SEND ==================
   Future<void> sendControlNow() async {
     final payload = shieldController.buildControlPayload(_txCounter++);
-
     if (demoMode) {
-      // 👇 جرّب وطبع بس
-      final hex = payload.map((b) => b.toRadixString(16).padLeft(2,'0')).join(' ');
-      final btns = payload.sublist(5, 17).map((b)=>b.toRadixString(16).padLeft(2,'0')).join(' ');
-      print("📤 DEMO TX (${payload.length} bytes):");
-      print("   full = $hex");
-      print("   btns = $btns   cnt=${payload[18]}  last=${payload[19]}  "
-          "size=${payload[2]}  dist=${payload[3]}  dir=${payload[4]}");
+      final hex = payload.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+      print("📤 DEMO TX: $hex");
       return;
     }
 
-    // --- وضع حقيقي (بدون تعديل) ---
-    if (_txCharacteristic == null) {
-      print("⚠️ TX char is null, skip send");
-      return;
-    }
-    final bool canNoRsp = _txCharacteristic!.properties.writeWithoutResponse;
-    try {
-      await _txCharacteristic!.write(payload, withoutResponse: canNoRsp);
-    } catch (e) {
-      print("❌ TX Error: $e");
-      try {
-        await _txCharacteristic!.write(payload, withoutResponse: !canNoRsp);
-        print("✅ TX retried with ${!canNoRsp ? 'WNR' : 'WRITE'} and succeeded");
-      } catch (e2) {
-        print("❌ TX Fallback Error: $e2");
-      }
-    }
+    if (_txCharacteristic == null) return;
+    await _txCharacteristic!.write(payload, withoutResponse: true);
   }
 
-  // نفس تايمراتك:
-  void _startFastLoop() {
-    if (_fastTxTimer != null) return;
-    _fastTxTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      sendControlNow();
-    });
-    print("⚡ Fast loop started (200ms)");
-  }
-
-  void _stopFastLoop() {
-    _fastTxTimer?.cancel();
-    _fastTxTimer = null;
-    print("🛑 Fast loop stopped");
-  }
-
-  void _startHeartbeat() {
-    _txTimer?.cancel();
-    _txTimer = Timer.periodic(const Duration(seconds: 20), (_) => sendControlNow());
-    print("💓 Heartbeat started (20s)");
-  }
-
-  void _stopHeartbeat() {
-    _txTimer?.cancel();
-    _txTimer = null;
-    print("🛑 Heartbeat stopped");
-  }
   Future<void> disconnect() async {
-    _stopFastLoop();
-    _stopHeartbeat();
-    shieldController.onControlChanged = null;
-
-    await _subscription?.cancel();
-    _subscription = null;
-
-    try {
-      await _device?.disconnect();
-      print("✅ Disconnected successfully");
-    } catch (e) {
-      print("❌ Disconnect Error: $e");
-    }
-
     _isConnected = false;
-    await _connSub?.cancel();
-    _connSub = null;
-
-    _device = null;
-    _rxCharacteristic = null;
-    _txCharacteristic = null;
-
     shieldController.clearData();
   }
 }*/
+

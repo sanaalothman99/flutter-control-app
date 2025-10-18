@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
+import '../cotrollers/shield_controller.dart';
 
 class ToggleButton extends StatefulWidget {
   final String label;
   final String iconName;
   final ValueChanged<bool> onChanged;
-  final bool handEnabled;   // من زر اليد
-  final bool reorderMode;   // من وضع إعادة الترتيب
+  final bool handEnabled;
+  final bool reorderMode;
+  final ShieldController controller;
 
   const ToggleButton({
     super.key,
@@ -14,6 +16,7 @@ class ToggleButton extends StatefulWidget {
     required this.onChanged,
     required this.handEnabled,
     required this.reorderMode,
+    required this.controller,
   });
 
   @override
@@ -22,18 +25,36 @@ class ToggleButton extends StatefulWidget {
 
 class _ToggleButtonState extends State<ToggleButton> {
   bool isPressed = false;
+  bool keepSending = false;
 
-  void _down() {
-    // يشتغل فقط إذا اليد ON ومو بوضع إعادة الترتيب
-    if (!widget.handEnabled || widget.reorderMode || isPressed) return;
+  void _down(PointerDownEvent event) {
+    if (!widget.handEnabled || widget.reorderMode) return;
+    if (isPressed) return;
+
     setState(() => isPressed = true);
+
+    widget.controller.pauseIdleTimer();
+    widget.controller.userInteracted(() {});
     widget.onChanged(true);
+
+    keepSending = true;
+    _continuousSend();
   }
 
-  void _up() {
+  void _up(PointerUpEvent event) {
     if (!isPressed) return;
     setState(() => isPressed = false);
+    keepSending = false;
+
+    widget.controller.resumeIdleTimer();
     widget.onChanged(false);
+  }
+
+  Future<void> _continuousSend() async {
+    while (keepSending) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      if (keepSending) widget.onChanged(true);
+    }
   }
 
   @override
@@ -41,33 +62,36 @@ class _ToggleButtonState extends State<ToggleButton> {
     final screenW = MediaQuery.of(context).size.width;
     final buttonW = screenW * 0.22;
     final iconSize = buttonW * 0.7;
-
     final bool tapEnabled = widget.handEnabled && !widget.reorderMode;
 
     final Color bg = tapEnabled
-        ? (isPressed ? Colors.blue.shade700 : Colors.black) // ✅ أسود لما اليد شغّالة
+        ? (isPressed ? Colors.blueAccent : Colors.black)
         : Colors.grey.shade500;
 
     return Listener(
-      behavior: HitTestBehavior.opaque, // يسمح بعدّة أصابع على عدّة أزرار
-      onPointerDown: (_) => _down(),
-      onPointerUp: (_) => _up(),
-      onPointerCancel: (_) => _up(),
+      // 🟢 أهم جزء: لكل زر جلسة لمس مستقلة بدون حجز الأحداث
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: _down,
+      onPointerUp: _up,
+      onPointerCancel: (e) => _up(PointerUpEvent()),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 100),
+        duration: const Duration(milliseconds: 80),
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(12),
         ),
         padding: const EdgeInsets.all(8),
-        child: Center(
-          child: Image.asset(
-            'assets/icons/${widget.iconName}',
-            width: iconSize,
-            height: iconSize,
-            fit: BoxFit.contain,
+        child: IgnorePointer(
+          child: Center(
+            child: Image.asset(
+              'assets/icons/${widget.iconName}',
+              width: iconSize,
+              height: iconSize,
+              fit: BoxFit.contain,
+            ),
           ),
         ),
       ),
     );
-  }}
+  }
+}

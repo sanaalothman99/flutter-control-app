@@ -15,9 +15,8 @@ class ShieldInfoTable extends StatelessWidget {
     required this.shields,
   });
 
-  // يعرض رقم الشيلد من unitNumber إن وُجد وإلا fallback على الفهرس
-  String _unitLabel(int i, ShieldData? sd) {
-    final unit = sd?.unitNumber ?? i;
+  // يكتب رقم الشيلد كما هو مطلوب في الجدول
+  String _unitLabel(int unit) {
     return '#${unit.toString().padLeft(3, '0')}';
   }
 
@@ -29,9 +28,12 @@ class ShieldInfoTable extends StatelessWidget {
     return '$value $unit';
   }
 
-  // تجيب صف الداتا بأمان (null لو خارج النطاق)
-  ShieldData? _dataForRow(int i) {
-    return (i >= 0 && i < shields.length) ? shields[i] : null;
+  // ابحثي عن صف بالداتا عبر unitNumber (بدل استخدام الفهرس)
+  ShieldData? _findByUnitNumber(int unit) {
+    for (final sd in shields) {
+      if (sd.unitNumber == unit) return sd;
+    }
+    return null;
   }
 
   // خلية نصية جاهزة
@@ -45,9 +47,7 @@ class ShieldInfoTable extends StatelessWidget {
     // اختاري ما سيُعرض:
     final List<int> shieldsToDisplay;
     if (selectedShields.isNotEmpty) {
-      shieldsToDisplay = {
-        ...selectedShields.where((i) => i >= 0),
-      }.toList()
+      shieldsToDisplay = {...selectedShields.where((u) => u >= 0)}.toList()
         ..sort();
     } else if (highlightedShield != null) {
       shieldsToDisplay = [highlightedShield!];
@@ -55,24 +55,15 @@ class ShieldInfoTable extends StatelessWidget {
       shieldsToDisplay = [currentShield];
     }
 
-    // دالة تجيب البيانات الصحيحة لكل صف:
-    ShieldData? dataForRow(int unitIndex) {
-      if (unitIndex == currentShield) {
-        // الشيلد الحالي يقرأ من الإطار الرئيسي (index 0) إن وُجد
-        if (shields.isNotEmpty) return shields[0];
-        return null;
+    // جلب بيانات الصف للـ unit الصحيح:
+    ShieldData? dataForRow(int unit) {
+      if (unit == currentShield) {
+        // الشيلد الحالي → من الإطار الرئيسي (index 0) إن وُجد
+        return shields.isNotEmpty ? shields[0] : null;
       }
-      // غير الحالي يقرأ من مكانه إن كان متاحاً
-      if (unitIndex >= 0 && unitIndex < shields.length) {
-        return shields[unitIndex];
-      }
-      return null;
+      // باقي الوحدات → ابحثي بالـ list وفق unitNumber
+      return _findByUnitNumber(unit);
     }
-
-    Widget cell(String text) => Padding(
-      padding: const EdgeInsets.all(8),
-      child: Text(text),
-    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -118,30 +109,30 @@ class ShieldInfoTable extends StatelessWidget {
               ],
             ),
 
-            for (final i in shieldsToDisplay)
+            for (final unit in shieldsToDisplay)
               (() {
-                final sd = dataForRow(i);
-                final isCurrent = (i == currentShield);
+                final sd = dataForRow(unit);
+                final isCurrent = (unit == currentShield);
 
                 return TableRow(
                   children: [
                     Padding(
                       padding: const EdgeInsets.all(8),
                       child: Text(
-                        _unitLabel(i, sd),
+                        _unitLabel(unit),
                         style: TextStyle(
                           fontWeight:
                           isCurrent ? FontWeight.bold : FontWeight.normal,
                         ),
                       ),
                     ),
-                    cell(sd != null
+                    _cell(sd != null
                         ? _formatValue(sd.ramStroke, "mm")
                         : '———'),
-                    cell(sd != null
+                    _cell(sd != null
                         ? _formatValue(sd.pressure1, "bar")
                         : '———'),
-                    cell(sd != null
+                    _cell(sd != null
                         ? _formatValue(sd.pressure2, "bar")
                         : '———'),
                   ],
@@ -152,4 +143,5 @@ class ShieldInfoTable extends StatelessWidget {
         const SizedBox(height: 12),
       ],
     );
-  }}
+  }
+}
