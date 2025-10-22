@@ -28,7 +28,7 @@ class ShieldWidget extends StatelessWidget {
     required this.groupSize,
   });
   static const int kMaxPressureBar = 600;  // أقصى ضغط لملء العمود
-  static const int kMaxRamMm       = 600; // أقصى شوط رام
+  static const int kMaxRamMm       = 1000; // أقصى شوط رام
 
 
   Color _colorFor(double value, Color normal) {

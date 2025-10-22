@@ -19,7 +19,7 @@ class ShieldController {
   int groupSize;
   Direction selectionDirection;
   int? startDirectionSign ;
-
+  int? moveDistanceLimit;
   final List<ShieldData> shields = [];
   final Map<int?, ShieldData> shieldMap = {};
 
@@ -44,6 +44,8 @@ class ShieldController {
   final Duration inactivityTimeout = const Duration(seconds: 30);
   final ValueNotifier<int> inactivitySecondsLeft = ValueNotifier(30);
 
+
+
   int? _deviceUnitFromName() {
     final name = connectionShieldName;
     if (name == null || name.isEmpty) return null;
@@ -66,10 +68,15 @@ class ShieldController {
           ? shields[0].maxDownSelection!
           : 5;
 
-  //int get selectionStart => currentShield + selectionDistance;
-  int get selectionStart =>
+  int get moveDistanceSelection =>
+     shields.isNotEmpty && shields[0].moveDistanceLimit != null
+      ? shields[0].moveDistanceLimit!
+     :5;
+
+  int get selectionStart => currentShield + selectionDistance;
+ /* int get selectionStart =>
       isReversed ? currentShield - selectionDistance
-          : currentShield + selectionDistance;
+          : currentShield + selectionDistance;*/
 
       // ====== مساعد لاتجاهات الرقم مع الانعكاس ======
   int _stepFor(Direction dir) {
@@ -105,24 +112,39 @@ class ShieldController {
   bool get hasActiveValves =>
       valveFunctions.any((v) => v != 0) || (extraFunction != 0);
 
-
- /*int get selectionDistanceForMcu {
-    /* if (selectionDistance == 0 && groupSize == 0) return 0;
-    if (selectionDistance != 0 && groupSize == 0)
-      return selectionDistance.abs();
-    return (groupSize > 0) ? groupSize : 0;*/
+  int get selectionDistanceForMcu {
     if (selectionDistance == 0 && groupSize == 0) return 0;
-    if (selectionDistance != 0 && groupSize == 0) {
-      // تحديد فردي
-      return selectionDistance.abs();
+
+    // 🔹 تحديد فردي فقط
+    if (groupSize == 0 && selectionDistance != 0) {
+      int value = selectionDistance;
+
+      // ✅ إذا الاتجاه معكوس (faceOrientation == 1)
+      // فالقيم الأصغر على اليمين → لازم نعكس الإشارة
+      if (isReversed) value = -value;
+
+      // ✅ إذا الاتجاه Left، نخليها سالبة
+      if (selectionDirection == Direction.left) value = -value;
+
+      return value;
     }
+
+    // 🔹 مجموعة محددة
     if (groupSize > 0) {
-      // مجموعة: distance ثابت = المسافة بين currentShield و selectionStart
-      return (selectionStart - currentShield).abs();
+      final dist = selectionStart - currentShield;
+      int value = dist;
+
+      // نحافظ على الإشارة الأصلية حسب اتجاه التحديد
+      if (selectionDirection == Direction.left) value = -value;
+
+      // وإذا الاتجاه معكوس (faceOrientation == 1)، نعكسها كلها
+      if (isReversed) value = -value;
+
+      return value;
     }
+
     return 0;
   }
-
 
   int get selectionSizeForMcu {
     if (groupSize == 0 && selectionDistance == 0) return 0;
@@ -136,71 +158,57 @@ class ShieldController {
 
     if (selectionDirection == Direction.right) return 0x0D;
     if (selectionDirection == Direction.left) return 0x0C;
-    return 0x00;
-  }*/
-  int get selectionDistanceForMcu {
-    // ما في تحديد إطلاقًا
-    if (selectionDistance == 0 && groupSize == 0) return 0;
-
-    // تحديد فردي فقط
-    if (groupSize == 0 && selectionDistance != 0) {
-      // موجبة أو سالبة حسب الاتجاه
-      return (selectionDirection == Direction.left)
-          ? -selectionDistance.abs()
-          : selectionDistance.abs();
-    }
-
-    // مجموعة محددة
-    if (groupSize > 0) {
-      // المسافة بين الشيلد الرئيسي وبداية المجموعة (مع اتجاه)
-      final dist = selectionStart - currentShield;
-      return (selectionDirection == Direction.left)
-          ? -dist.abs()
-          : dist.abs();
-    }
-
-    return 0;
+   // return 0x00;
+    return (selectionDistance == 0) ? 0x0D : 0x0C;
   }
 
-
-  int get selectionSizeForMcu {
-    // حجم المجموعة فقط (0 إن لم توجد)
-    return (groupSize > 0) ? groupSize : 0;
-  }
-
-
-  int get startDirectionForMcu {
-    final hasAny = (groupSize > 0) || (selectionDistance != 0);
-    if (!hasAny) return 0x00;
-
-    // 0x0D → يمين | 0x0C → يسار
-    if (selectionDirection == Direction.right) return 0x0D;
-    if (selectionDirection == Direction.left)  return 0x0C;
-    return 0x00;
-  }
 // ===== حدود السماحية (تصحيح بسيط للانعكاس) =====
   _Limits _limits() {
-    if (isReversed) {
+      if (isReversed){
+        return _Limits(maxDownSelection, maxUpSelection);
+      }
       // faceOrientation = 1 → الأرقام تصغر باتجاه اليمين
-      return _Limits(
-        maxUpSelection,   // يسار بصرياً
-        maxDownSelection, // يمين بصرياً
-      );
+     else{ return _Limits(
+        maxDownSelection,   // يسار بصرياً
+        maxUpSelection, // يمين بصرياً
+      );}
+
+  }
+
+  _Limits _limitsForMovement() => _limits();
+
+  bool _withinStepLimits(int desired /* المسافة الجديدة من المركز */) {
+    final lim = _limitsForMovement();
+    if (desired > 0 && desired > lim.right) return false; // يمين فيزيائياً
+    if (desired < 0 && -desired > lim.left) return false; // يسار فيزيائياً
+    if (desired.abs() > 5) return false; // حد 5 خطوات
+    return true;
+  }
+
+  ({int minAllowed, int maxAllowed}) get allowedBounds {
+    final int up = maxUpSelection;
+    final int down = maxDownSelection;
+
+    int minA, maxA;
+
+    if (isReversed) {
+      // faceOrientation = 1 → الأرقام تصغر يميناً
+      // يعني: اليمين = أصغر أرقام  →  currentShield - down
+      //        اليسار = أكبر أرقام →  currentShield + up
+      minA = currentShield - down;
+      maxA = currentShield + up;
     } else {
-      // faceOrientation = 0 → الأرقام تكبر باتجاه اليمين
-      return _Limits(
-        maxDownSelection, // يسار بصرياً
-        maxUpSelection,   // يمين بصرياً
-      );
+      // faceOrientation = 0 → الأرقام تكبر يميناً
+      // يعني: اليسار = currentShield - up
+      //        اليمين = currentShield + down
+      minA = currentShield - down;
+      maxA = currentShield + up;
     }
+
+    if (minA < 0) minA = 0;
+    return (minAllowed: minA, maxAllowed: maxA);
   }
   /*({int minAllowed, int maxAllowed}) get allowedBounds {
-    final lim = _limits();
-    final minA = currentShield - lim.left;
-    final maxA = currentShield + lim.right;
-    return (minAllowed: minA < 0 ? 0 : minA, maxAllowed: maxA);
-  }*/
- /* ({int minAllowed, int maxAllowed}) get allowedBounds {
     final lim = _limits();
 
     // ✅ الاتجاه المعكوس: الأرقام الأصغر على اليمين → نقلّب المنطق
@@ -215,7 +223,7 @@ class ShieldController {
       return (minAllowed: (minA < 0 ? 0 : minA), maxAllowed: maxA);
     }
   }*/
-  ({int minAllowed, int maxAllowed}) get allowedBounds {
+ /* ({int minAllowed, int maxAllowed}) get allowedBounds {
     if (shields.isEmpty) {
       return (minAllowed: 0, maxAllowed: 0);
     }
@@ -241,7 +249,7 @@ class ShieldController {
     if (minA < 0) minA = 0;
 
     return (minAllowed: minA, maxAllowed: maxA);
-  }
+  }*/
 
   ({int minIdx, int maxIdx}) _currentRange() {
     final start = selectionStart;
@@ -260,18 +268,35 @@ class ShieldController {
 
     return (minIdx: a, maxIdx: b);
   }
+
   bool _withinAllowed({required int minIdx, required int maxIdx}) {
     final b = allowedBounds;
     if (minIdx < b.minAllowed) return false;
     if (maxIdx > b.maxAllowed) return false;
-    if (minIdx < 1) return false; // ما في Shield رقم 0
     return true;
   }
 
-  /*bool _withinAllowed({required int minIdx, required int maxIdx}) {
-    final b = allowedBounds;
-    if (minIdx < b.minAllowed) return false;
-    if (maxIdx > b.maxAllowed) return false;
+
+ /* bool _withinAllowed({required int minIdx, required int maxIdx}) {
+    // المسافة من الشيلد الرئيسي
+    final int distRight = maxIdx - currentShield;
+    final int distLeft  = currentShield - minIdx;
+
+    // حدود فيزيائية ثابتة
+    final int maxRight = maxDownSelection ?? 5;
+    final int maxLeft  = maxUpSelection ?? 5;
+
+    // إذا الاتجاه معكوس (faceOrientation = 1): الأرقام تصغر يمين
+    if (isReversed) {
+      // يمين = تصغير رقم
+      if (distLeft > maxRight) return false; // أبعد يمين مما يجب
+      if (distRight > maxLeft) return false; // أبعد يسار مما يجب
+    } else {
+      // الاتجاه الطبيعي
+      if (distRight > maxRight) return false;
+      if (distLeft > maxLeft) return false;
+    }
+
     if (minIdx < 0) return false;
     return true;
   }*/
@@ -413,292 +438,188 @@ class ShieldController {
   void userInteracted(VoidCallback onTimeout) {
     resetInactivityTimer(onTimeout);
   }
-// ===== تشكيل/توسيع مجموعة يمين (نفس منطق التحديد الفردي) =====
-  void groupRight(int ignored, Function(int newTotal) onNewTotal) {
-    userInteracted(() {});
-    _touch();
 
-    // منطق C: bHARechts = (faceOrientation == 1)
-    final bool haRechts = (shields.isNotEmpty && shields[0].faceOrientation == 1);
-
-    final int limitRight = haRechts ? maxDownSelection : maxUpSelection;   // +dist
-    final int limitLeft  = haRechts ? maxUpSelection   : maxDownSelection; // -dist
+  void selectRight(int ignored) {
+    userInteracted(() {}); _touch();
 
     final int step = _stepFor(Direction.right);
-    final int moveRange =
-    shields.isNotEmpty && shields[0].moveRange != null
-        ? shields[0].moveRange!
-        : 15;
-    if (moveRange <= 0) return;
+    final _Limits lim = _limits();
 
-    final int start = currentShield + (isReversed ? selectionDistance : selectionDistance);
-
-    // أول مرة: إنشاء مجموعة جديدة
-    if (groupSize == 0) {
-      selectionDirection = Direction.right;
-      final int firstNew = start + step;
-
-      // تحقق من الحدود (مثل selectRight)
-      final int dist = (firstNew - currentShield).abs();
-      if (dist > limitRight) return;
-
-      if (!_withinAllowed(minIdx: min(start, firstNew), maxIdx: max(start, firstNew))) return;
-
-      selectionDistance = start - currentShield;
-      groupSize = 1;
-
-      _ensurePlaceholdersForRange(min(start, firstNew), max(start, firstNew));
-      onNewTotal(allowedBounds.maxAllowed + 1);
-      onUpdate?.call();
-      onControlChanged?.call();
-      return;
+    // مجموعة؟ ازاحة كاملة
+    if (groupSize > 0) {
+      final r = _currentRange();
+      final newMin = r.minIdx + step, newMax = r.maxIdx + step;
+      if (!_withinAllowed(minIdx: newMin, maxIdx: newMax)) return;
+      selectionDistance += step;
+      _ensurePlaceholdersForRange(newMin, newMax);
+      onUpdate?.call(); onControlChanged?.call(); return;
     }
 
-    // توسعة المجموعة يمين
-    if (selectionDirection != Direction.right) return;
-    if (groupSize >= moveRange) return;
+    if (groupSize == 0 && selectionDistance == 0) selectionDirection = Direction.right;
 
-    final int nextEdge = start + step * (groupSize + 1);
-    final int dist = (nextEdge - currentShield).abs();
-    if (dist > limitRight) return;
+    final int desired = selectionDistance + step;
+    final bool goingOut = desired.abs() > selectionDistance.abs();
 
-    final r = _currentRange();
-    final int newMin = min(r.minIdx, nextEdge);
-    final int newMax = max(r.maxIdx, nextEdge);
+    // طبّق الحدود فقط إذا طالع لبرا
+    if (goingOut) {
+      if (desired.abs() > 5) return;
+      if (desired > 0 && desired > lim.right) return;   // يمين فيزيائي
+      if (desired < 0 && -desired > lim.left) return;   // يسار فيزيائي (نادر هون)
+    }
 
-    if (!_withinAllowed(minIdx: newMin, maxIdx: newMax)) return;
+    selectionDistance = desired;
+    final int target = currentShield + desired;
+    if (!_withinAllowed(minIdx: target, maxIdx: target)) return;
 
-    groupSize++;
-    _ensurePlaceholdersForRange(newMin, newMax);
-    onNewTotal(allowedBounds.maxAllowed + 1);
-    onUpdate?.call();
-    onControlChanged?.call();
+    _ensurePlaceholdersForRange(target, target);
+    onUpdate?.call(); onControlChanged?.call();
   }
 
-
-
-// ===== تشكيل/توسيع مجموعة يسار (نفس منطق التحديد الفردي) =====
-  void groupLeft(Function(int newTotal, int shift) onNewTotal) {
-    userInteracted(() {});
-    _touch();
-
-    final bool haRechts = (shields.isNotEmpty && shields[0].faceOrientation == 1);
-
-    final int limitUp   = haRechts ?maxUpSelection   : maxDownSelection;
-    final int limitDown = haRechts ?  maxDownSelection : maxUpSelection;
+  void selectLeft() {
+    userInteracted(() {}); _touch();
 
     final int step = _stepFor(Direction.left);
-    final int moveRange =
-    shields.isNotEmpty && shields[0].moveRange != null
-        ? shields[0].moveRange!
-        : 15;
+    final _Limits lim = _limits();
+
+    if (groupSize > 0) {
+      final r = _currentRange();
+      final newMin = r.minIdx + step, newMax = r.maxIdx + step;
+      if (!_withinAllowed(minIdx: newMin, maxIdx: newMax)) return;
+      selectionDistance += step;
+      _ensurePlaceholdersForRange(newMin, newMax);
+      onUpdate?.call(); onControlChanged?.call(); return;
+    }
+
+    if (groupSize == 0 && selectionDistance == 0) selectionDirection = Direction.left;
+
+    final int desired = selectionDistance + step;
+    final bool goingOut = desired.abs() > selectionDistance.abs();
+
+    if (goingOut) {
+      if (desired.abs() > 5) return;
+      if (desired < 0 && -desired > lim.left) return;   // يسار فيزيائي
+      if (desired > 0 && desired > lim.right) return;   // يمين فيزيائي (نادر هون)
+    }
+
+    selectionDistance = desired;
+    final int target = currentShield + desired;
+    if (!_withinAllowed(minIdx: target, maxIdx: target)) return;
+
+    _ensurePlaceholdersForRange(target, target);
+    onUpdate?.call(); onControlChanged?.call();
+  }
+  void groupRight(int ignored, Function(int newTotal) onNewTotal) {
+    userInteracted(() {}); _touch();
+
+    final int stepR = _stepFor(Direction.right);
+    final int moveRange = maxGroupSize;
     if (moveRange <= 0) return;
 
-    final int start = currentShield + (isReversed ? selectionDistance : selectionDistance);
+    final r = _currentRange();
 
-    // أول مرة: إنشاء مجموعة
+    // أول مرّة: إنشاء مجموعة ناحية اليمين
     if (groupSize == 0) {
-      selectionDirection = Direction.left;
-      final int firstNew = start + step;
+      selectionDirection = Direction.right;
+      final firstNew = selectionStart + stepR;
+      if (!_withinAllowed(minIdx: min(selectionStart, firstNew), maxIdx: max(selectionStart, firstNew))) return;
 
-      final int dist = (firstNew - currentShield).abs();
-      if (dist > limitUp) return;
-
-      if (!_withinAllowed(minIdx: min(start, firstNew), maxIdx: max(start, firstNew))) return;
-
-      selectionDistance = start - currentShield;
+      selectionDistance = selectionStart - currentShield; // حافظ على الـ anchor
       groupSize = 1;
-
-      _ensurePlaceholdersForRange(min(start, firstNew), max(start, firstNew));
-      onNewTotal(allowedBounds.maxAllowed + 1, 0);
-      onUpdate?.call();
-      onControlChanged?.call();
+      _ensurePlaceholdersForRange(min(selectionStart, firstNew), max(selectionStart, firstNew));
+      onNewTotal(allowedBounds.maxAllowed + 1);
+      onUpdate?.call(); onControlChanged?.call();
       return;
     }
 
-    // توسعة المجموعة يسار
-    if (selectionDirection != Direction.left) return;
     if (groupSize >= moveRange) return;
 
-    final int nextEdge = start + step * (groupSize + 1);
-    final int dist = (nextEdge - currentShield).abs();
-    if (dist > limitUp) return;
+    // ⬅️ توسعة دائمًا على الحافة اليمنى للنطاق الحالي
+    final nextEdge = r.maxIdx + stepR;
+    // تأكد من الحدود
+    if (!_withinAllowed(minIdx: r.minIdx, maxIdx: nextEdge)) return;
+
+    // لو الاتجاه الأصلي يسار، لازم نزيح نقطة البداية خطوة يمين لنضم عنصرًا من يمين
+    if (selectionDirection == Direction.left) {
+      selectionDistance += stepR; // تحريك الـ start ناحية اليمين الفيزيائي
+    }
+    groupSize++;
+    final rr = _currentRange();
+    _ensurePlaceholdersForRange(rr.minIdx, rr.maxIdx);
+    onNewTotal(allowedBounds.maxAllowed + 1);
+    onUpdate?.call(); onControlChanged?.call();
+  }
+
+  void groupLeft(Function(int newTotal, int shift) onNewTotal) {
+    userInteracted(() {}); _touch();
+
+    final int stepL = _stepFor(Direction.left);
+    final int moveRange = maxGroupSize;
+    if (moveRange <= 0) return;
 
     final r = _currentRange();
-    final int newMin = min(r.minIdx, nextEdge);
-    final int newMax = max(r.maxIdx, nextEdge);
 
-    if (!_withinAllowed(minIdx: newMin, maxIdx: newMax)) return;
+    // أول مرّة: إنشاء مجموعة ناحية اليسار
+    if (groupSize == 0) {
+      selectionDirection = Direction.left;
+      final firstNew = selectionStart + stepL;
+      if (!_withinAllowed(minIdx: min(selectionStart, firstNew), maxIdx: max(selectionStart, firstNew))) return;
 
+      selectionDistance = selectionStart - currentShield; // حافظ على الـ anchor
+      groupSize = 1;
+      _ensurePlaceholdersForRange(min(selectionStart, firstNew), max(selectionStart, firstNew));
+      onNewTotal(allowedBounds.maxAllowed + 1, 0);
+      onUpdate?.call(); onControlChanged?.call();
+      return;
+    }
+
+    if (groupSize >= moveRange) return;
+
+    // ⬅️ توسعة دائمًا على الحافة اليسرى للنطاق الحالي
+    final nextEdge = r.minIdx + stepL;
+    if (!_withinAllowed(minIdx: nextEdge, maxIdx: r.maxIdx)) return;
+
+    // لو الاتجاه الأصلي يمين، لازم نزيح نقطة البداية خطوة يسار لنضم عنصرًا من يسار
+    if (selectionDirection == Direction.right) {
+      selectionDistance += stepL; // تحريك الـ start ناحية اليسار الفيزيائي
+    }
     groupSize++;
-    _ensurePlaceholdersForRange(newMin, newMax);
+    final rr = _currentRange();
+    _ensurePlaceholdersForRange(rr.minIdx, rr.maxIdx);
     onNewTotal(allowedBounds.maxAllowed + 1, 0);
-    onUpdate?.call();
-    onControlChanged?.call();
+    onUpdate?.call(); onControlChanged?.call();
   }
-  /// ===== تحديد أو تحريك يمين =====
-  void selectRight(int ignored) {
-    userInteracted(() {});
-    _touch();
-
-    // منطق C: bHARechts = (faceOrientation == 1)
-    final bool haRechts = (shields.isNotEmpty && shields[0].faceOrientation == 1);
-
-    // حدود الاختيار
-    final int limitRight = haRechts ? maxDownSelection : maxUpSelection;   // +dist
-    final int limitLeft  = haRechts ? maxUpSelection   : maxDownSelection; // -dist
-
-    const int inc = 1; // يمين دايمًا +1 على المسافة مثل Selection.c
-
-    // --- إذا في مجموعة: حركها يمين ---
-    if (groupSize > 0) {
-      final nextDist = selectionDistance + inc;
-
-      if (nextDist.abs() > 5) return;
-      if (nextDist > 0 && nextDist > limitRight) return;
-      if (nextDist < 0 && -nextDist > limitLeft) return;
-
-      selectionDistance = nextDist;
-
-      final r = _currentRange();
-      final int delta = haRechts ? -inc : inc; // مع الانعكاس نعكس الإشارة
-      final newMin = r.minIdx + delta;
-      final newMax = r.maxIdx + delta;
-
-      if (_withinAllowed(minIdx: newMin, maxIdx: newMax)) {
-        _ensurePlaceholdersForRange(newMin, newMax);
-        onUpdate?.call();
-        onControlChanged?.call();
-      }
-      return;
-    }
-
-    // --- تحديد فردي يمين ---
-    final desired = selectionDistance + inc;
-
-    if (desired.abs() > 5) return;
-    if (desired > 0 && desired > limitRight) return;
-    if (desired < 0 && -desired > limitLeft) return;
-
-    // ✅ الهدف بالرسم (لاحظ قلب الإشارة لما الانعكاس مفعّل)
-    final int target = (isReversed)
-        ? (currentShield - desired)
-        : (currentShield + desired);
-
-    if (!_withinAllowed(minIdx: target, maxIdx: target)) return;
-
-    selectionDirection = Direction.right;
-    selectionDistance = desired;
-
-    _ensurePlaceholdersForRange(target, target);
-    onUpdate?.call();
-    onControlChanged?.call();
-  }
-
-  /// ===== تحديد أو تحريك يسار (منطق مطابق لـ C تمامًا) =====
-  void selectLeft() {
-    userInteracted(() {});
-    _touch();
-
-    final bool haRechts = (shields.isNotEmpty && shields[0].faceOrientation == 1);
-
-    // حدود التحديد طبقاً لاتجاه الانعكاس
-    final int limitUp   = haRechts ? maxDownSelection : maxUpSelection;
-    final int limitDown = haRechts ? maxUpSelection   : maxDownSelection;
-
-    const int inc = -1; // يسار = -1 دائماً في منطق الـ C
-
-    // --- في حال وجود مجموعة ---
-    if (groupSize > 0) {
-      final nextDist = selectionDistance + inc;
-
-      if (nextDist.abs() > 5) return; // لا تتجاوز ٥ خطوات
-      if (nextDist > 0 && nextDist > limitUp) return;
-      if (nextDist < 0 && -nextDist > limitDown) return;
-
-      selectionDistance = nextDist;
-
-      final r = _currentRange();
-      final int delta = inc; // التحريك الفيزيائي بنفس الإشارة هنا
-      final newMin = r.minIdx + delta;
-      final newMax = r.maxIdx + delta;
-
-      if (_withinAllowed(minIdx: newMin, maxIdx: newMax)) {
-        _ensurePlaceholdersForRange(newMin, newMax);
-        onUpdate?.call();
-        onControlChanged?.call();
-      }
-      return;
-    }
-
-    // --- تحديد فردي يسار ---
-    final desired = selectionDistance + inc;
-
-    if (desired.abs() > 5) return;
-    if (desired > 0 && desired > limitUp) return;
-    if (desired < 0 && -desired > limitDown) return;
-
-    // 🧠 الهدف الفعلي في الرسم
-    final int target = (isReversed)
-        ? (currentShield - desired)
-        : (currentShield + desired);
-
-    if (!_withinAllowed(minIdx: target, maxIdx: target)) return;
-
-    selectionDirection = Direction.left;
-    selectionDistance = desired;
-
-    _ensurePlaceholdersForRange(target, target);
-    onUpdate?.call();
-    onControlChanged?.call();
-  }
-
-
-
-// 🔹 مساعد: يحرك selectionStart بمقدار delta (بوحدات الفهرس) بدون تغيير الاتجاه
+  // مساعد صغير: يحرّك selectionStart بمقدار دلتا اندكس
   void _shiftSelectionStart(int deltaIndex) {
-    // selectionStart = isReversed ? currentShield - selectionDistance : currentShield + selectionDistance
-    // فإذا بدنا selectionStart' = selectionStart + deltaIndex:
-    // selectionDistance' = selectionDistance + (isReversed ? -deltaIndex : deltaIndex)
+    // selectionStart' = selectionStart + deltaIndex
+    // => selectionDistance' = selectionDistance + (isReversed ? -deltaIndex : deltaIndex)
     selectionDistance += isReversed ? -deltaIndex : deltaIndex;
   }
 
-// ===== حذف من يمين بصريًا (دائمًا الطرف الأيمن بصريًا) =====
   void removeFromRight() {
     _touch();
     if (groupSize <= 0) return;
 
-    // بصريًا: يمين = +1 إذا طبيعي، -1 إذا معكوس
-    final int stepVisualRight = isReversed ? -1 : 1;
-    final int stepVisualLeft  = -stepVisualRight; // يسار بصريًا
+    final int start = selectionStart;
+    final int stepDir = stepFor(selectionDirection);
+    final int end = start + stepDir * groupSize;
 
-    // إذا بقي عنصر واحد → رجوع لتحديد فردي (بدون تغيير الاتجاه)
-    if (groupSize == 1) {
-      groupSize = 0;
-      _ensurePlaceholdersForRange(highlightedUnit, highlightedUnit);
-      onUpdate?.call();
-      onControlChanged?.call();
-      return;
+    // حدّد أي طرف هو "يمين بصريًا"
+    // عند isReversed=false → اليمين = index الأكبر
+    // عند isReversed=true  → اليمين = index الأصغر
+    final int rightVisual = isReversed ? (start < end ? start : end)
+        : (start > end ? start : end);
+
+    // إذا كنا نحذف الطرف اليميني وهو نفسه الـ start → حرّك الـ start خطوة للداخل
+    if (rightVisual == start) {
+      selectionDistance += stepDir; // نقل نقطة البداية للداخل
+      groupSize -= 1;
+    } else {
+      // الطرف البعيد عن start
+      groupSize -= 1;
     }
 
-    // احسب أطراف النطاق الحالي
-    final int start = selectionStart; // بداية المجموعة بالرسم
-    final int stepDir = stepFor(selectionDirection); // لازم يكون بصري (+1 يمين، -1 يسار)
-    final int last = start + stepDir * groupSize;
-
-    final int minIdx = (start < last) ? start : last;
-    final int maxIdx = (start > last) ? start : last;
-
-    // الطرف الأيمن بصريًا: إذا معكوس → الأصغر، إذا طبيعي → الأكبر
-    final int rightMost = isReversed ? minIdx : maxIdx;
-
-    // إذا الطرف الأيمن هو بداية المجموعة → حرك البداية خطوة "للداخل" باتجاه اليسار البصري
-    if (rightMost == start) {
-      _shiftSelectionStart(stepVisualLeft);
-    }
-
-    // قلّص حجم المجموعة دائمًا
-    groupSize--;
+    // ترتيب وحماية
+    if (groupSize < 0) groupSize = 0;
 
     final r = _currentRange();
     _ensurePlaceholdersForRange(r.minIdx, r.maxIdx);
@@ -706,96 +627,37 @@ class ShieldController {
     onControlChanged?.call();
   }
 
-
-// ===== حذف من يسار بصريًا (دائمًا الطرف الأيسر بصريًا) =====
   void removeFromLeft() {
     _touch();
     if (groupSize <= 0) return;
 
-    final int stepVisualRight = isReversed ? -1 : 1;
-    final int stepVisualLeft  = -stepVisualRight;
-
-    if (groupSize == 1) {
-      groupSize = 0;
-      _ensurePlaceholdersForRange(highlightedUnit, highlightedUnit);
-      onUpdate?.call();
-      onControlChanged?.call();
-      return;
-    }
-
     final int start = selectionStart;
-    final int stepDir = stepFor(selectionDirection); // بصري
-    final int last = start + stepDir * groupSize;
+    final int stepDir = stepFor(selectionDirection);
+    final int end = start + stepDir * groupSize;
 
-    final int minIdx = (start < last) ? start : last;
-    final int maxIdx = (start > last) ? start : last;
+    // حدّد أي طرف هو "يسار بصريًا"
+    // عند isReversed=false → اليسار = index الأصغر
+    // عند isReversed=true  → اليسار = index الأكبر
+    final int leftVisual = isReversed ? (start > end ? start : end)
+        : (start < end ? start : end);
 
-    // الطرف الأيسر بصريًا: إذا معكوس → الأكبر، إذا طبيعي → الأصغر
-    final int leftMost = isReversed ? maxIdx : minIdx;
-
-    // إذا الطرف الأيسر هو بداية المجموعة → حرك البداية خطوة "للداخل" باتجاه اليمين البصري
-    if (leftMost == start) {
-      _shiftSelectionStart(stepVisualRight);
+    // إذا كنا نحذف الطرف اليساري وهو نفسه الـ start → حرّك الـ start خطوة للداخل (بعكس اتجاه المجموعة)
+    if (leftVisual == start) {
+      selectionDistance += stepDir; // نقل نقطة البداية للداخل
+      groupSize -= 1;
+    } else {
+      // الطرف البعيد عن start
+      groupSize -= 1;
     }
 
-    groupSize--;
+    if (groupSize < 0) groupSize = 0;
 
     final r = _currentRange();
     _ensurePlaceholdersForRange(r.minIdx, r.maxIdx);
     onUpdate?.call();
     onControlChanged?.call();
   }
-  void updateShieldData(int index, ShieldData newData) {
-   /* if (index < 0) return;
-
-    // 1) حافظ على لستة shields (لا تلمسها)
-    if (index < shields.length) {
-      shields[index] = newData;
-    } else if (index == shields.length) {
-      shields.add(newData);
-    } else {
-      // إن صار قفزة غير متوقعة، كبّري اللستة بمكانات فاضية لحد index
-      while (shields.length < index) {
-        shields.add(ShieldData.empty(unitNumber: shields.length));
-      }
-      shields.add(newData);
-    }
-
-    // 2) إن كان الشيلد الرئيسي وما عنده unitNumber → استخرجو من اسم الجهاز
-    int? unitNum = newData.unitNumber;
-    if (index == 0 && (unitNum == null || unitNum == 0)) {
-      final guessed = _deviceUnitFromName();
-      if (guessed != null) {
-        // بنينا نسخة جديدة بنفس القيم لكن مع unitNumber
-        newData = ShieldData(
-          unitNumber: guessed,
-          pressure1: newData.pressure1,
-          pressure2: newData.pressure2,
-          ramStroke: newData.ramStroke,
-          sensor4: newData.sensor4,
-          sensor5: newData.sensor5,
-          sensor6: newData.sensor6,
-          faceOrientation: newData.faceOrientation,
-          maxDownSelection: newData.maxDownSelection,
-          maxUpSelection: newData.maxUpSelection,
-          moveRange: newData.moveRange,
-        );
-        unitNum = guessed;
-
-        // خليه هو currentShield بوحدة حقيقية (مهم للسنترة بالرسم)
-        currentShield = guessed;
-      }
-    }
-
-    // 3) خزّن بالماب على المفتاحين:
-    //    - على index دائمًا
-    shieldMap[index] = newData;
-    //    - وعلى unitNum إذا موجود
-    if (unitNum != null) {
-      shieldMap[unitNum] = newData;
-    }
-
-    onUpdate?.call();*/
+ /* void updateShieldData(int index, ShieldData newData) {
     if (index < 0) return;
 
     // 🟢 إذا نفس الشيلد وصل بنفس القيم → لا تعيدي التحديث لتجنب flicker
@@ -814,7 +676,7 @@ class ShieldController {
       shields.add(newData);
     } else {
       // إن صار قفزة غير متوقعة، كبّري اللستة بمكانات فاضية لحد index
-      while (shields.length < index) {
+      while (shields.length <= index) {
         shields.add(ShieldData.empty(unitNumber: shields.length));
       }
       shields.add(newData);
@@ -822,8 +684,12 @@ class ShieldController {
 
     // 2) إن كان الشيلد الرئيسي وما عنده unitNumber → استخرجي من اسم الجهاز
     int? unitNum = newData.unitNumber;
-    if (index == 0 && (unitNum == null || unitNum == 0)) {
-      final guessed = _deviceUnitFromName();
+
+    // ✅ تعديل إضافي: تأكيد تعيين currentShield أول مرة فقط (حتى لو unitNumber != 0)
+    if (index == 0 && currentShield == 0) {
+      final guessed = (unitNum == null || unitNum == 0)
+          ? _deviceUnitFromName()
+          : unitNum;
       if (guessed != null) {
         newData = ShieldData(
           unitNumber: guessed,
@@ -837,9 +703,10 @@ class ShieldController {
           maxDownSelection: newData.maxDownSelection,
           maxUpSelection: newData.maxUpSelection,
           moveRange: newData.moveRange,
+          moveDistanceLimit: newData.moveDistanceLimit,
         );
         unitNum = guessed;
-        currentShield = guessed;
+        currentShield = guessed; // ✅ يعين الشيلد الرئيسي مرة واحدة فقط
       }
     }
 
@@ -850,7 +717,63 @@ class ShieldController {
     }
 
     onUpdate?.call();
+  }*/
+  void updateShieldData(int index, ShieldData newData) {
+    if (index < 0) return;
+
+    // 🟢 لا تمنعي تحديث الشيلد الرئيسي/الحالي حتى لو نفس القيم
+    final int key = newData.unitNumber ?? index;
+    final bool isMainOrCurrent = (index == 0) || (key == currentShield);
+
+    // إذا نفس الشيلد وصل بنفس القيم → لا تعيدي التحديث لتجنب flicker
+    // ✳️ لكن اسمحي بالتحديث لو كان الشيلد الرئيسي/الحالي
+    final existing = shieldMap[key];
+    if (!isMainOrCurrent &&
+        existing != null &&
+        existing.pressure1 == newData.pressure1 &&
+        existing.pressure2 == newData.pressure2 &&
+        existing.ramStroke == newData.ramStroke) {
+      return; // لا داعي للتحديث لأنه نفس الداتا بالضبط
+    }
+
+    // 1) حافظي على لستة shields (لا تلمسيها)
+    if (index < shields.length) {
+      shields[index] = newData;
+    } else if (index == shields.length) {
+      shields.add(newData);
+    } else {
+      // إن صار قفزة غير متوقعة، كبّري اللستة بمكانات فاضية لحد index
+      while (shields.length <= index) {
+        shields.add(ShieldData.empty(unitNumber: shields.length));
+      }
+      shields.add(newData);
+    }
+
+    // 2) إن كان الشيلد الرئيسي وما عنده unitNumber → استخرجي من اسم الجهاز
+    int? unitNum = newData.unitNumber;
+
+    // ✅ تأكيد تعيين currentShield أول مرة فقط
+    if (index == 0 && currentShield == 0) {
+      final guessed = (unitNum == null || unitNum == 0)
+          ? _deviceUnitFromName()
+          : unitNum;
+      if (guessed != null) {
+        newData = newData.copyWith(unitNumber: guessed);
+        unitNum = guessed;
+        currentShield = guessed; // يعين الشيلد الرئيسي مرة واحدة فقط
+      }
+    }
+
+    // 3) خزّني بالماب على المفتاحين
+    shieldMap[index] = newData;
+    if (unitNum != null) {
+      shieldMap[unitNum] = newData;
+    }
+    print("🔁 Updating shield index=$index  pressures=(${newData.pressure1}, ${newData.pressure2})");
+    onUpdate?.call();
   }
+
+
 
  // int get highlightedUnit => currentShield + selectionDistance;
   int get highlightedUnit => selectionStart;
@@ -985,6 +908,7 @@ class ShieldController {
   }
 
   void dispose() {
+
     _clearTimer?.cancel();
     _inactivityTimer?.cancel();
   }
@@ -992,28 +916,28 @@ class ShieldController {
   // ✅ دمي داتا للتجريب
   void initDummyDataForTest() {
     // توليد 50 شيلد للتجريب
-    for (int i = 0; i < 50; i++) {
+    for (int i = 0; i < 11; i++) {
       updateShieldData(
         i,
         ShieldData(
           unitNumber: i,
           pressure1: 100 + i,
           pressure2: 120 + i,
-          ramStroke: 300 + i,
+          ramStroke: 600 + i,
           sensor4: 0,
           sensor5: 0,
           sensor6: 0,
           faceOrientation: 1, // ✅ 1 = يمين أصغر / يسار أكبر (مطابق لحالتك الواقعية)
            // ✅ 1 = يمين أصغر / يسار أكبر (مطابق لحالتك الواقعية)
-          maxDownSelection: 5, // الحد الأقصى يمين (down)
-          maxUpSelection: 97,  // الحد الأقصى يسار (up)
+          maxDownSelection: 3, // الحد الأقصى يمين (down)
+          maxUpSelection: 10,  // الحد الأقصى يسار (up)
           moveRange: 15,       // أقصى مدى للمجموعة
         ),
       );
     }
 
     // ✅ تعريف الوضع المبدئي
-    currentShield = 6; // الشيلد الرئيسي للبداية
+    currentShield = 4; // الشيلد الرئيسي للبداية
     selectionDirection = Direction.none;
     selectionDistance = 0;
     groupSize = 0;

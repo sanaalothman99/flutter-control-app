@@ -15,8 +15,9 @@ class ShieldData {
   // إعدادات الشيلد الرئيسي
   final int? faceOrientation; // 0 = left (عادي), 1 = right (معكوس)
   final int? maxDownSelection; // أقصى مسافة اختيار باتجاه Down
-  final int? maxUpSelection; // أقصى مسافة اختيار باتجاه Up
-  final int? moveRange; // أقصى حجم مجموعة
+  final int? maxUpSelection;   // أقصى مسافة اختيار باتجاه Up
+  final int? moveRange;        // أقصى حجم مجموعة
+  final int? moveDistanceLimit; // ✅ البايت الجديد (Byte 35)
 
   const ShieldData({
     this.unitNumber,
@@ -30,6 +31,7 @@ class ShieldData {
     this.maxDownSelection,
     this.maxUpSelection,
     this.moveRange,
+    this.moveDistanceLimit,
   });
 
   factory ShieldData.empty({required int unitNumber}) {
@@ -45,11 +47,12 @@ class ShieldData {
       maxDownSelection: 0,
       maxUpSelection: 0,
       moveRange: 0,
+      moveDistanceLimit: 0,
     );
   }
 
-  // طول الإطارات حسب المواصفة
-  static const int mainLength = 19; // الشيلد الرئيسي
+  // الطول الكامل حسب المواصفة
+  static const int mainLength = 36; // ✅ الإطار الرئيسي الكامل (0-35)
   static const int additionalLength = 8; // كل شيلد إضافي
 
   // Helpers
@@ -81,15 +84,11 @@ class ShieldData {
       final s6 = _le16(data, 10);
 
       final face = data[13];
-
       final maxDn = _be16(data, 14);
       final maxUp = _be16(data, 16);
-
       final move = data[18];
 
-      // 🟢 Debug
-     // print(
-          //"🧩 MainShield: p1=$p1 p2=$p2 ram=$ram face=$face maxDn=$maxDn maxUp=$maxUp move=$move");
+      final moveLimit = (data.length > 35) ? data[35] : 0; // ✅ Byte 35
 
       return ShieldData(
         pressure1: p1,
@@ -102,6 +101,7 @@ class ShieldData {
         maxDownSelection: maxDn,
         maxUpSelection: maxUp,
         moveRange: move,
+        moveDistanceLimit: moveLimit, // ✅ تمت الإضافة
       );
     } else {
       if (offset + additionalLength > data.length) {
@@ -113,9 +113,6 @@ class ShieldData {
       final p2 = _le16(data, offset + 4);
       final ram = _le16(data, offset + 6);
 
-      // 🟢 Debug
-     // print("🧩 ExtraShield unit=$unit p1=$p1 p2=$p2 ram=$ram");
-
       return ShieldData(
         unitNumber: unit,
         pressure1: p1,
@@ -124,6 +121,7 @@ class ShieldData {
       );
     }
   }
+
   ShieldData copyWith({
     int? unitNumber,
     int? pressure1,
@@ -136,6 +134,7 @@ class ShieldData {
     int? maxDownSelection,
     int? maxUpSelection,
     int? moveRange,
+    int? moveDistanceLimit,
   }) {
     return ShieldData(
       unitNumber: unitNumber ?? this.unitNumber,
@@ -149,6 +148,7 @@ class ShieldData {
       maxDownSelection: maxDownSelection ?? this.maxDownSelection,
       maxUpSelection: maxUpSelection ?? this.maxUpSelection,
       moveRange: moveRange ?? this.moveRange,
+      moveDistanceLimit: moveDistanceLimit ?? this.moveDistanceLimit,
     );
-}
+  }
 }

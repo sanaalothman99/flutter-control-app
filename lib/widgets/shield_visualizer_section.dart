@@ -126,6 +126,7 @@ class ShieldVisualizerSection extends StatelessWidget {
                 child: Padding(
                   padding: EdgeInsets.only(right: i < visibleCount - 1 ? spacing : 0),
                   child: ShieldWidget(
+
                     width: double.infinity,
                     height: shieldHeight,
                     pressureLeft:  (data.pressure1  ).toDouble(),

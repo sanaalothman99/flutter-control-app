@@ -167,6 +167,7 @@ class _ReorderableToggleGridState extends State<ReorderableToggleGrid> {
         handEnabled: handEnabled,
         reorderMode: false,
         controller: widget.controller,
+
         onChanged: (isOn) {
         if (reorderMode) return;
 
