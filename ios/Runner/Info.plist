@@ -50,5 +50,9 @@
     	<string>This app requires Bluetooth access to communicate with controllers.</string>
     	<key>NSLocationWhenInUseUsageDescription</key>
     	<string>This app needs location access to detect and connect to nearby EC-Remote Controllers via Bluetooth.</string>
+    	<key>UIBackgroundModes</key>
+        <array>
+        <string>bluetooth-central</string>
+        </array>
 </dict>
 </plist>
